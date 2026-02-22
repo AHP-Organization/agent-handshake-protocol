@@ -1,182 +1,163 @@
 # AHP Whitepaper Critique
 
-**Critiqued version:** AHP-WHITEPAPER-0.1.md (Draft 0.1, revised 4 — 10:14 UTC)
-**Critique date:** 2026-02-22 10:30 UTC
-**Live test data:** `/tmp/ahp-report-latest.json` — present, run at 10:05 UTC
-**Test runner version in file:** v5 (committed 10:08 UTC — 3 minutes *after* test ran)
-**Prior critiques:** 06:30, 07:30, 08:30, 09:30 UTC
+**Critiqued version:** AHP-WHITEPAPER-0.1.md (Draft 0.1, revised 5 — 11:07 UTC)
+**Critique date:** 2026-02-22 11:33 UTC
+**Live test data:** `/tmp/ahp-report-latest.json` — present, run at 11:13 UTC (v5.1 suite)
+**Sequence:** Code committed 11:07 → test ran 11:13 — **first post-commit run across all critique cycles**
+**Prior critiques:** 06:30, 07:30, 08:30, 09:30, 10:30 UTC
 
 ---
 
-## Preface: Cumulative Progress — What Is Now Solid
+## Status: The Structural Problem Is Resolved
 
-After five revision cycles, the following are genuinely resolved and backed by clean live data:
+Every prior critique cycle identified the same root issue: test code was committed *after* the test ran, and the paper claimed results from a version of the suite that had never executed. That pattern ends here.
 
-- ✓ **Benchmark numbers are accurate and reproducible.** Token comparison tables match the live JSON exactly (AHP 2,406 ±16 vs. live 2405.7/15.6; RAG 289 ±7 vs. live 289.3/7.4). Cache-busting nonces are working. Stddev is real LLM variance.
-- ✓ **T20 (rate-limit headers) confirmed passing.** Live: `X-RateLimit-Limit: 30, X-RateLimit-Remaining: 22, X-RateLimit-Reset: 1771754530, X-RateLimit-Window: 60` — all present and numeric. Prior "unknown/unknown" readings resolved.
-- ✓ **Latency profile now has genuine split cold/hot data.** Cold p50 = 3,507ms (n=10 unique nonces), hot p50 = 17.5ms (n=9 cache hits). This is real infrastructure measurement.
-- ✓ **T12 delivers genuine quote data.** `calculate_quote` called once, real price table returned. No false-positive on error vocabulary.
-- ✓ **RAG baseline is fully API-measured.** 289–958 tokens AHP site, 408–634 Nate site — real Haiku calls, real variance.
-- ✓ **T17 CRITICAL DEFECT language is accurate and prominent.**
-- ✓ **T18 (session turn limit), T19 (oversized body 413) both confirmed.**
-- ✓ **Server session memory is real.** The turn 2 answer proves it: *"You asked specifically about MODE1. In your first question, you requested: 'Tell me about AHP modes — focus especially on MODE1.'"*
+The v5.1 test suite code was committed at 11:07. The test ran at 11:13 — six minutes later. For the first time, the live JSON is a genuine v5.1 run, not a v4 run with editorial corrections. Consequently:
 
-The remaining issues are structural, not methodological. The benchmark data is the best it has been. What follows is a focused set of problems that must be fixed before the paper accurately represents the live test state.
+- T08 **passes** in the live data: `"You asked specifically about **MODE1**. In your first message, you explicitly requested: 'Tell me about AHP modes — focus especially on MODE1.'"` — the server has session memory, and the v5 fix correctly recognises it.
+- T22 **passes** in the live data: server returned HTTP 400 on unknown session_id; the v5.1 fix accepting any 4xx works correctly.
+- T21 **runs** in the live data: the test executes and returns advisory pass as designed.
+- All 22 tests appear in the JSON. The summary: **21/22 passed (95.5%), T17 ✗**.
+- All benchmark token counts match the paper's tables exactly (AHP 2,403 ±17 vs. live 2402.7 ±16.8 etc.).
+
+The paper's core claims are now backed by clean, genuine test data. What follows are the remaining issues — considerably smaller in scope than in prior iterations, but still worth addressing before submission.
 
 ---
 
 ## Critical Problems (must fix)
 
-### 1. T08 is a false negative — the server demonstrates session memory, the test fails it anyway
+### 1. The MODE1 query AHP latency has a 31% coefficient of variation driven by a 7.5-second outlier
 
-This is the defining issue of this revision cycle, and it runs in the opposite direction from every previous critique. Previously, T08 produced false **positives** (test passed when server had no memory). Now, with real session memory implemented, T08 produces a false **negative** — the test fails a server that clearly works.
+The "Explain what MODE1 is" query shows AHP latency of 5,278ms / 4,062ms / 7,470ms across three runs — a ±1,727ms standard deviation and 31% coefficient of variation. Run 3 at 7,470ms is more than double the cold-cache p50 of 3,436ms (from the latency profile) and nearly double run 2.
 
-The live T08 notes read:
-> *"FAIL: server has no session memory. Context-failure phrases detected: ['FIRST QUESTION']. Turn 2 answer: 'You asked specifically about **MODE1**. In your first question, you requested: "Tell me about AHP modes — focus especially on MODE1."'"*
+This is the single worst-variance data point in the entire benchmark. Every other AHP site query has CV ≤ 17%; every Nate site query has CV ≤ 17%. The MODE1 query at 31% CV stands apart. The mean of 5,603ms is substantially inflated by the outlier — the median of the three runs is 5,278ms, still significantly above the profile p50.
 
-The turn 2 answer is an unambiguous demonstration of session memory. The server correctly recalls the exact wording of turn 1. But the test detects `'FIRST QUESTION'` in the phrase *"In your **first question**, you requested"* — which is the server **citing** the first question, not disclaiming knowledge of it.
+The paper reports `5,603ms ±1,727ms` in the latency column of Table 4.2, which is internally consistent, but two things are missing:
 
-The v5 code (committed at 10:08) removes `"FIRST QUESTION"` from the exclusion list precisely to fix this. But the test ran at **10:05** — three minutes before the fix was committed. The paper's conformance table shows T08 as ✓, citing the v5 fix. The live JSON shows T08 as `passed: false`. These are in direct contradiction.
+1. **No acknowledgement of the outlier.** A 7.5-second response for a straightforward content query is anomalous. It may reflect an API cold start, transient rate-limit, or network event on run 3. The paper should note this: *"Run 3 of the MODE1 query recorded 7,470ms vs. 4,062–5,278ms for the other runs, likely reflecting a transient API event; this inflates the mean and stddev for this row."*
 
-**Net result**: The server has session memory. The v4 test incorrectly flags it as not having memory. The v5 fix is correct. But the v5 fix has **never run against the live server**. The paper presents the intended outcome of a test that hasn't executed yet.
+2. **The abstract and conclusion use "cold-cache latency averages 3,436ms p50"** (from the latency profile) as the representative cold-cache figure. This is correct for the profile queries. But the MODE1 comparison-table latency of 5,603ms is substantially higher than this figure and uses different queries. A reader comparing the abstract's "3,436ms p50" to the comparison table's "5,603ms" for MODE1 will see an apparent contradiction. The paper should clarify that the profile p50 (3,436ms) comes from the latency profile queries (short, uniform-format queries) and the comparison table shows per-query latency for evaluation queries, which vary based on answer complexity.
 
-**The specific exclusion-phrase problem that needs care in v5**: `"FIRST QUESTION"` was too broad (correctly removed in v5). But similar ambiguities remain in the exclusion list:
-- `"THIS IS YOUR FIRST"` could match "This is your first MODE1 question" if a memory-capable server happens to say that
-- `"NO RECORD OF PREVIOUS"` could match a technically different context
-The v5 approach (removing only `"FIRST QUESTION"`) is a narrow fix for the observed case. A more robust approach: instead of expanding/trimming an exclusion list, assert directly that the turn 2 answer contains a quoted or paraphrased version of the turn 1 query content. Since turn 1 always asks about MODE1, the robust assertion is: turn 2 must mention MODE1 AND the exclusion phrases must be absent AND the notes must not say "without prior context."
-
-### 2. T21 and T22 passed in the paper but did not run in the live data
-
-The live JSON contains **20 test results** (T01–T20 + T16). T21 and T22 are absent. The `summary.total = 20`. The v5 code that adds T21 and T22 was committed at 10:08, three minutes after the test ran.
-
-The paper's conformance table marks:
-- **T21**: ✓ — *"Server answered without clarification (status=success). Advisory: clarification_needed flow not triggered."*
-- **T22**: ✓ — *"Server created new session (v5)"*
-
-Neither of these test results appears in the live JSON. They are asserted based on what the v5 code *would* produce if run, not from an actual test execution. The paper claims "v5 suite" results, but the live data is from a 20-test run lacking the two newest tests.
-
-**This is the fourth consecutive revision in which the paper claims results from a suite version that has not yet been run against the live server.** The timeline is identical each time: code committed N minutes after test run; paper updated to reflect intended v(N) outcomes rather than actual v(N-1) outcomes.
-
-### 3. The conformance figure is wrong in the paper, wrong in the JSON, and they disagree with each other
-
-The paper states: **"19/20 (95%)"** with T17 as the only failure.
-
-The live JSON states: **18/20 (90%)** with T08 and T17 both failing.
-
-Neither figure accurately reflects a complete v5 run. A correct v5 run — with T08 fixed and T21/T22 added — would produce:
-- 22 tests total (T01–T22)
-- T17 failing (known CRITICAL DEFECT)
-- T08 passing (server has memory; v5 fix correctly passes it)
-- T21 likely passing (server answers directly; advisory)
-- T22 likely passing (graceful unknown session handling)
-= **21/22 (95.5%)**
-
-Until that run is actually executed, no conformance figure in the paper is verifiable. The paper should either execute a clean v5 run and update, or explicitly state: *"Conformance based on partial v5 run (20 tests executed at 10:05 UTC); T21 and T22 pending first execution. T08 result is a known v4 false negative; v5 fix confirmed correct by manual inspection of live server response."*
-
-### 4. The recurring structural problem: code is always committed after the test run it's meant to generate
-
-This is the fourth consecutive revision with the same sequence:
-1. Test runs at time T
-2. Bug/improvement identified in test code
-3. Code committed at T + 3–6 minutes
-4. Paper updated to claim results from the new code
-5. Live data contradicts the paper on exactly the tests the new code was meant to fix
-
-The root cause: the development workflow updates code and paper in the same session, but the test run that informed the edit already happened. Every cycle adds one new false claim.
-
-**Practical fix**: run the test suite AFTER committing all code changes. Use that run's JSON as the backing data. Do not update the paper's conformance table until a post-commit run confirms the outcome. The token benchmark numbers are stable across runs; it's only the conformance table (driven by test code changes) that needs a post-commit run.
+The most conservative fix: re-run the MODE1 query once (4 total runs, drop the outlier) or add a footnote explaining the 7,470ms run. A 31% CV in a 3-run benchmark is high enough that a reviewer will notice.
 
 ---
 
 ## Secondary Issues
 
-### 5. The §4.1 header says "v3 test suite (T01–T19)" while the table shows T01–T22
+### 2. T21 is advisory-only and the ✓ in the conformance table overstates coverage of spec §6.3
 
-Section 4.1 opens: *"The reference deployment was tested against the v3 test suite (T01–T19)."* The table immediately below includes T20, T21, and T22. This is a copy-paste survivor from earlier when the section heading wasn't updated after the suite table was extended. A reader following from the header to the table will be confused.
+T21's live result: *"Server answered without clarification (status=success, mode=MODE2). Advisory: clarification_needed flow (spec §6.3) not triggered by test queries. Server is not REQUIRED to clarify — spec says MAY."*
 
-### 6. The hot cohort's first run is cold — hot_max_ms is not a cache-hit latency
+The test passes in two distinct situations: (a) the server returns `clarification_needed` with a correct format (genuine §6.3 coverage), or (b) the server never returns `clarification_needed` at all (advisory — spec compliant per MAY). Every run will take path (b) because the reference server appears not to return clarification for any test query, including the maximally ambiguous "What is it?".
 
-The latency profile run 11 (first "hot" sample) shows `cached: false, latency: 3,129ms`. This is because the `[latency-hot-fixed]` query phrase was not yet in cache when run 11 started. The paper's Table 4.3 notes this correctly: *"Run 1 only — first call on fresh query is always cold."* But the label `hot_max_ms: 3,129ms` is still reported alongside cache-hit statistics, and `cached_p50_ms: 17.5ms` is computed from only 9 cached samples (runs 12–20), not 10.
+A ✓ in the conformance table implies that §6.3 was verified. It was not. The server is spec-compliant *because the spec says MAY*, not because the test verified anything. A practitioner reading the conformance table would expect that T21 confirms the clarification response format works. It confirms only that the server chose not to use it.
 
-The paper should note that `cached_n = 9` in the latency profile, not 10, and that the hot cohort's true cache-hit max (excluding run 1) is 25.3ms — not 3,129ms. The current framing slightly inflates the apparent p95 of cache-hit latency.
+**Two options:**
+- Change T21 to "N/A" or "Advisory (spec §6.3 MAY — not triggered)" in the conformance table, removing the ✓ that implies positive verification
+- Add a second test that injects a mock `clarification_needed` response to test the format parser in isolation, which would provide genuine §6.3 coverage
 
-### 7. T21 is structurally non-informative as currently designed
+The current framing is technically accurate per the spec's MAY, but it's the weakest test in the suite and the ✓ inflates the effective coverage of the protocol.
 
-T21 passes in two cases: (a) the server returns `clarification_needed` and the format is correct, or (b) the server never returns `clarification_needed` at all, in which case the test passes as "advisory." In the live run context, the test always takes path (b) — the server answers "What is it?" directly rather than asking for clarification. This means T21 will always report "advisory" against this server, providing no actual coverage of spec §6.3's format requirement.
+### 3. The paper says "1–2 tool call rounds" for MODE3 but live data shows exactly 1 consistently
 
-T21 is a format-check test that only triggers when the server chooses to trigger it. Since the spec says a server MAY return clarification, and this server never does, T21 is effectively a null test. It should be redesigned to inject a query that is more reliably ambiguous (or the test should be documented as "format validation — requires a server that implements optional clarification"), rather than claiming an advisory pass that the server didn't earn.
+Section 4.4 states: *"Token cost: ~2,400–3,500 (1–2 tool call rounds in v5 test runs)."* The live data shows:
+- T11 (inventory): `tools_used: ['check_inventory']` — 1 tool call
+- T12 (quote): `tools_used: ['calculate_quote']` — 1 tool call
+- T13 (order): `tools_used: ['lookup_order']` — 1 tool call
 
-### 8. The paper's description of cold-cache latency in the comparison table footnote understates fetch latency
+Three consecutive tests, each 1 tool call. The "1–2 rounds" language is hedging from a prior test run where T11 showed 4 tool calls (now fixed). The current reference server consistently completes single-domain MODE3 queries in 1 tool call. The paper should update to "1 tool call per query in v5.1 test runs" and remove the "–2" hedge.
 
-The comparison table footnote notes: *"Fetch latency (194ms) is a **single measurement** reused for all queries."* This is correct and an improvement over prior versions. However, the 194ms figure deserves context: the naive baseline involves fetching a ~40KB document over the network (165–248ms depending on site). The paper's comparison table positions this as "latency to receive the full document" — but in the naive scenario, the receiving agent still has to make a separate LLM call to answer the question. The 194ms fetch is the *minimum* naive latency, not the total cost. A fully honest latency comparison would add the LLM inference time for the naive case (~2,500ms) to get a true end-to-end comparison. The paper discusses this in §4.3 but the comparison table implies 194ms is the complete naive cost.
+This matters because the 1 vs. 2 tool call distinction directly affects the MODE3 token cost range (2,400–3,500). With 1 tool call consistently, a tighter cost estimate is possible.
 
-### 9. The discussion of content-signal MUST/SHOULD alignment still needs a concrete position
+### 4. The latency comparison in §4.3 needs clearer cross-reference to the comparison table
 
-§2.5 says: *"The `ai_train: false` and similar signals are best understood as SHOULD-level behavioural guidance for visiting agents until enforcement mechanisms are specified."* This is sensible. But the spec (SPEC.md §8) still uses `MUST` for content signal compliance. The whitepaper and spec now disagree about the normative weight of content signals. Before submission, either:
-- The spec should be updated to change `MUST respect ai_train: false` to `SHOULD`, or
-- The whitepaper should clarify that it's proposing a downgrade in §5 of the spec that hasn't been implemented yet
+Section 4.3 states: *"AHP's cold-cache latency (~3.4s) is 1.2–3× higher than the RAG baseline (~1.1–2.8s)."* This comparison uses the latency profile's 3,436ms p50. But the latency comparison table shows AHP latency ranging from 2,746ms to **5,603ms** for the five evaluation queries. A reader will notice that one evaluation query (MODE1, 5,603ms) is 1.6× the stated "~3.4s."
 
-Having the whitepaper describe signals as SHOULD-level while the spec says MUST creates a compliance ambiguity that an implementer would have to resolve by choosing which document to believe.
+The paper should note: *"The 3,436ms cold p50 in §4.3 is from the latency profile queries (short nonce queries with uniform structure). Evaluation query latency (§4.2 table) varies by answer complexity — from 2,746ms to 5,603ms — reflecting that more complex queries require longer LLM output."* Without this context, the two figures appear contradictory.
+
+### 5. Nate site "Explain prompt engineering" RAG latency has 25% CV — worth acknowledging
+
+The Nate site RAG latency for "Explain prompt engineering" is 2,258ms / 1,414ms / 1,639ms (mean 1,770ms ±437ms, 25% CV). One run at 2,258ms is 1.6× the other two. The paper reports this without comment. This is a minor issue but one a careful reviewer might flag as evidence of API-side variance in the RAG baseline — consistent with the same API variance that affected the MODE1 AHP query.
+
+This variance (and the similar ±420ms for "AI agents in production") suggests the RAG baseline API latency on the Nate site is subject to meaningful infrastructure variance — the same infrastructure as the AHP calls. A sentence noting *"Both RAG and AHP latency reflect Anthropic API variance; the CV range of 5–31% across queries is consistent with single-provider LLM inference variability"* would contextualise all the stddev figures.
+
+### 6. T21 format: the test sends "What is it?" as its ambiguity probe but the reference server answers it
+
+The notes confirm: *"Server answered without clarification (status=success, mode=MODE2)."* The test premise is that "What is it?" is maximally ambiguous and might trigger clarification. The server answered it — presumably with something about AHP, the only topic it knows. For a server with a well-defined domain, even an ambiguous question has a clear answer: "it" refers to AHP. A genuinely domain-agnostic test for clarification triggering would need a query that is ambiguous *within the site's domain* — e.g., "Which mode should I use?" when MODE1/2/3 are all valid answers. This would more reliably test whether the server implements the clarification pathway.
+
+This is a minor improvement suggestion, not a blocking issue. The test is honestly marked advisory.
 
 ---
 
 ## What the Tests Need
 
-### Must fix before claiming v5 results
+### Remaining coverage gaps (post-v5.1)
 
-1. **Run the actual v5 suite** (with T08 fix, T21, T22) and update the paper's backing data from that run. The current paper presents a mix of: (a) accurate benchmark numbers from the 10:05 run, (b) a T08 result editorially corrected from that run, and (c) T21/T22 claimed from code that never ran. A single clean v5 run resolves all three issues.
+1. **T21 needs genuine §6.3 format verification.** Options: (a) use a domain-internally-ambiguous query ("Which mode should I use?") that might realistically trigger clarification, or (b) add a companion test `T21b` that directly parses a mocked `clarification_needed` response to verify the format without requiring the live server to trigger it. Until one of these exists, §6.3 format compliance is completely unverified.
 
-2. **Verify T08 v5 fix is robust.** After the run, confirm that:
-   - T08 passes with the v5 code (likely — the turn 2 answer clearly has MODE1 positive signal and no remaining unambiguous no-memory phrases)
-   - The phrase `"In your first question, you requested"` is not matched by any remaining exclusion term
-   - The phrase `"THIS IS YOUR FIRST"` in the exclusion list doesn't accidentally match legitimate memory-demonstrating contexts
+2. **Content type negotiation (spec §6.6) is untested across all suite versions.** `accept_types`, `response_types`, `accept_fallback`, and `unsupported_type` (400) are spec primitives. No test exercises any of them. A server that omits the entire content type negotiation system passes all 22 tests.
 
-3. **Redesign T21 to provide actual coverage.** Options: (a) use a query that empirically triggers clarification on the reference server (requires discovery — send 5–10 maximally ambiguous queries and log which, if any, trigger clarification), (b) document T21 as "format validation — server-dependent; advisory if clarification never triggered," or (c) create a separate test fixture that injects a mock `clarification_needed` response to test the format parser in isolation.
+3. **Session time-based expiry (10-minute TTL) is untested.** T18 verifies the 10-turn limit. The time limit is unverified. A server with an infinite session TTL passes all 22 tests.
 
-### Remaining gap: content type negotiation
+4. **T16's window consumption is non-deterministic.** The burst test "429 after 10 burst requests" reflects that only 9 requests were available when T16 started (earlier tests consumed 21). The declared limit of 30/min is confirmed by T20 header verification, but the T16 "burst count to 429" varies by how many earlier tests ran. T16 should either (a) note the effective window at test time and compute expected 429 trigger point from that, or (b) be moved to run immediately after T20 (before most test requests) so the full 30-request window is available for more reproducible burst testing.
 
-4. **Content type negotiation (spec §6.6) remains untested across all 5 suite versions.** The spec defines `accept_types`, `response_types`, `accept_fallback`, and `unsupported_type` errors (400). No test exercises any of these. A fully conformant server needs to handle all of them; a server can omit all of them and still pass all 22 tests.
+### Methodology improvements
 
-### Remaining gap: session expiry
+5. **Add a note or re-run for the MODE1 query's 31% CV.** Either flag the 7,470ms outlier explicitly in the table footnote or add a fourth run to test stability. A consistent ≤20% CV across all queries would give stronger confidence in the latency comparisons.
 
-5. **Session time-based expiry (10-minute TTL) is still untested.** T18 verifies the 10-turn limit. No test verifies the time limit. A server with an infinite session TTL passes all tests.
-
-### Methodology note
-
-6. **Update the naive latency footnote** to clarify that 194ms is document-fetch only, not total naive end-to-end (which would include LLM inference). The comparison table could add a row showing "Naive total (fetch + LLM ~2,500ms) ≈ ~2,700ms" to make the latency comparison honest across all three approaches.
+6. **Update the latency comparison formula in §4.3.** "1.2–3× higher than the RAG baseline (~1.1–2.8s)" uses the latency profile p50, not the per-query evaluation latencies. Add a note clarifying the comparison uses the profile p50 as a summary statistic, while individual query latencies vary.
 
 ---
 
 ## What the Whitepaper Needs
 
-### Corrections required now
+### Required updates
 
-1. **Update the conformance table to reflect live data.** The table should mark T08 as ✗ (false negative — v5 fix confirmed but not yet run; server has memory) and T21/T22 as "pending first v5 execution" rather than ✓. Alternatively, run v5 and use those results.
+1. **Add an outlier note for the MODE1 query latency.** One sentence in Table 4.2 footnotes: *"†Run 3 of the MODE1 query recorded 7,470ms (vs. 4,062ms and 5,278ms for runs 1–2), likely a transient API event; this inflates the mean and ±1,727ms stddev for this row."* This prevents a reviewer from treating the high stddev as evidence of general instability.
 
-2. **Fix the §4.1 header** from "v3 test suite (T01–T19)" to "v5 test suite (T01–T22)" — the table already shows T01–T22.
+2. **Update "1–2 tool call rounds" to "1 tool call" in §4.4.** The v5.1 run consistently shows 1 tool call per MODE3 query. The hedged range is stale.
 
-3. **Clarify the hot cohort p50 calculation.** `cached_p50_ms = 17.5ms` is from 9 samples (runs 12–20), not 10. Run 11 was cold. The abstract's "17.5ms p50" for cache-hit latency is derived from 9 cache hits out of 10 hot samples; the true hot p50 should note this is from the cache-hit subset.
+3. **Add a cross-reference clarifying the latency profile p50 vs. evaluation query latency.** One sentence in §4.3 connecting the 3,436ms cold p50 to the fact that evaluation queries vary 2,746–5,603ms based on answer complexity.
 
-4. **Resolve the MUST/SHOULD tension between spec and paper** for content signals. Pick one level and update both documents to agree.
+4. **Reconsider the T21 ✓ in the conformance table.** Either change the table cell to "Advisory (§6.3 MAY — not triggered in test run)" or note it prominently as "format-unverified." The current ✓ overstates what was tested.
 
-### Framing improvements (remaining)
+5. **Update the conformance table note for T11** (Section 4.1): the current note says "1 tool call (`check_inventory`) observed in v5.1 run" — accurate. But the §4.4 text still says "1–2 tool call rounds." Make §4.4 consistent with the table note.
 
-5. **The abstract's "19 of 20 conformance checks" should specify the caveat:** *"19/20 in v4 run; T08 is a known v4 false negative — v5 code confirmed to fix this; T21/T22 pending first v5 execution."* Without this, the abstract makes a claim the live data contradicts.
+### What no longer needs fixing
 
-6. **§3.1's note on session memory history is accurate but needs a single crisp statement.** The current note is: *"Note: earlier test runs (pre-10:00 UTC 2026-02-22) showed a session without this context, suggesting the implementation was updated or the behaviour was intermittent; the current deployed server is confirmed to support session history."* This is factually correct but hedged ("suggesting... or intermittent"). The live data is unambiguous: the server DOES have session memory. The v4 test had a false negative bug. The history note should distinguish between server behaviour (always had memory in the most recent deployments) and test code behaviour (v4 had a false negative; v5 fixes it).
-
-7. **Remove the claim that T21 was "confirmed in v5 live run."** T21 was not in the live run. The result in the paper is hypothetical/editorial. Either run it or don't claim it.
+The following issues from prior critiques are fully resolved in this version:
+- ✓ Version mismatch (v4 code / v3 data): resolved — v5.1 code ran before v5.1 test
+- ✓ Conformance number inconsistency: all three instances now agree at 21/22 (95.5%)
+- ✓ T08 false pass/fail cycle: T08 genuinely passes with server session memory confirmed
+- ✓ T22 not running: T22 runs and passes (HTTP 400 on invalid session_id)
+- ✓ T20 "unknown/unknown" headers: T20 passes, headers present and numeric
+- ✓ RAG baseline absent: fully populated, cache-busted, API-measured
+- ✓ Latency profile all-cached: genuine 10-cold + 10-hot split working
+- ✓ Appendix stale version: corrected to v5.1
+- ✓ Straw-man baseline framing: honestly positioned as upper-bound reference
+- ✓ Single-site evaluation: Nate Jones cross-comparison genuine and populated
+- ✓ T12 false pass: asserting price regex + failure phrase exclusion works
+- ✓ T15/T16 ID swap: fixed
+- ✓ p95 with 5 samples: genuine p95 from 20 samples
+- ✓ Naive latency 200ms hardcode: replaced with real measured fetch time
+- ✓ Character-count token estimation: replaced with tiktoken
+- ✓ Cache-busting ±0 stddev: nonces working, genuine variance measured
+- ✓ T17 severity: CRITICAL KNOWN DEFECT language appropriate and clear
+- ✓ Related work: comprehensive (GPT Actions, Schema.org, ai.txt, RFC 8615, OpenAPI, DID)
+- ✓ Conformance scope: reference-implementation-only scoping clear throughout
 
 ---
 
 ## Summary of Most Critical Issues
 
-- **T08 is a false negative in the live data.** The server clearly has session memory — it quotes the turn 1 question verbatim in turn 2 — but the test fails because `"FIRST QUESTION"` in the exclusion list matches `"In your first question, you requested..."`, a memory-demonstrating phrase. The v5 fix (removing `"FIRST QUESTION"`) is correct and in the code, but has never been executed against the server. The paper marks T08 ✓; the live data marks it ✗.
+**The good news first**: this is the strongest version of the paper to date. The benchmark data is clean, reproducible, and matches the live run exactly. The RAG-baseline comparison is honest, prominent, and correctly positioned as the competitive reference. The latency profile has genuine cold/hot cohort data. The conformance suite ran cleanly with 21/22 passing. T08 and T22 both pass correctly after their respective fixes. The version-mismatch problem that plagued five prior cycles is resolved. The paper's framing — AHP's advantage over RAG is protocol-level, not efficiency-level — is accurate and well-supported by the data.
 
-- **T21 and T22 claimed as passing but are absent from live data.** The JSON contains 20 tests; T21 and T22 do not appear. They are in the v5 code committed 3 minutes after the test ran. The paper presents their results as confirmed. They are not.
+Remaining issues are incremental, not structural:
 
-- **The paper is in its fourth consecutive cycle of claiming results from a suite version that ran after the test was generated.** Every revision follows the same sequence: test runs → bug found → fix committed → paper updated to claim the fix worked → live data contradicts the claim. The fix for this pattern is simple: run the test suite **after** committing all code changes, and use that run's JSON as the backing data. Not before.
+- **The MODE1 query AHP latency (5,603ms ±1,727ms, 31% CV) is an outlier driven by a 7,470ms run 3.** This is the highest-variance data point in the benchmark. The paper should acknowledge the likely transient nature of that run. Left unexplained, a reviewer will flag the high stddev as evidence of instability.
 
-- **What is genuinely solid:** the token benchmark numbers are accurate, reproducible, and match the live data exactly. The latency profile's cold/hot split (cold p50 = 3,507ms, hot p50 = 17.5ms) is real infrastructure data from a well-designed 20-sample run. T20 (rate-limit headers) is confirmed passing. The server's session memory is real. The paper's core technical claims about what AHP provides — structured discovery, server-managed caching, MODE3 capabilities, honest token comparison with RAG — are all well-supported by the data. What remains is a test execution timing problem, not a methodological problem.
+- **T21 provides zero verified coverage of spec §6.3's `clarification_needed` format**, but shows ✓ in the conformance table. The MAY nature of the spec means the ✓ is technically correct — but a practitioner would expect T21 to confirm the format works. It does not. The table cell should either say "Advisory" or §6.3 format testing should be added.
 
-- **The single remaining action required to resolve all critical issues:** commit v5 code, then run the test suite once, then update the paper from that run's JSON. The code is correct; the sequence is wrong.
+- **Three remaining cross-reference clarifications in the paper body**: (1) 1–2 tool calls → 1 tool call consistently in §4.4; (2) latency profile p50 vs. evaluation query latency context in §4.3; (3) the MODE1 outlier footnote in Table 4.2.
+
+- **Two spec features remain completely untested across all 22 tests**: content type negotiation (§6.6) and session time-based expiry (10-min TTL). These are not blocking issues for the current evaluation scope but should be called out explicitly in the test suite's known limitations.
