@@ -67,6 +67,7 @@ This paper presents:
 2. **A reference implementation** — a complete open-source MODE1/MODE2/MODE3 server deployable on any Node.js host
 3. **Empirical evaluation** — conformance testing, token efficiency benchmarks, and latency profiling across two independent sites (reference implementation only; no third-party implementations tested in this version)
 4. **A test suite** — an open-source visiting agent harness (v5.4, 24 conformance tests including RAG-baseline comparison, cache-busted multi-run averaging, automatic outlier detection, cross-site comparison, session memory, rate-limit headers, and §6.3 format validation)
+5. **Platform integrations** — a live MCP endpoint (`/mcp`) and auto-generated OpenAPI spec (`/openapi.json`) on the reference deployment, making all AHP capabilities accessible to Claude and ChatGPT without those platforms natively supporting AHP (spec Appendix D and E)
 
 ---
 
@@ -490,6 +491,27 @@ Planned work for the visiting agent side includes:
 
 ---
 
+### 5.8 Platform Compatibility: MCP and OpenAPI
+
+The early web offers a useful parallel. When search engines were proliferating in the mid-1990s, a site that wanted to be found had to decide which crawlers to optimise for — AltaVista, Lycos, Excite, HotBot each had their own rules and preferences. The emergence of `robots.txt` and eventually sitemaps gave sites a single standard to implement that worked across all crawlers. The platform problem dissolved into a protocol problem.
+
+AHP faces an analogous situation. The two dominant AI platforms today — Claude (Anthropic) and ChatGPT (OpenAI) — have their own agent interaction models: MCP (Model Context Protocol) and GPT Actions respectively. A site that wants to be accessible to both currently has to implement both, separately, with no shared vocabulary.
+
+AHP addresses this through its `integrations` manifest block. A site declares compatibility endpoints:
+
+```json
+"integrations": {
+  "mcp": { "url": "/mcp", "version": "2024-11-05" },
+  "openapi": { "url": "/openapi.json", "version": "3.1.0" }
+}
+```
+
+The reference implementation ships both. `/mcp` is a JSON-RPC 2.0 endpoint that exposes all AHP capabilities as MCP tools — Claude Desktop and the Claude API can connect to any AHP site with no additional configuration. `/openapi.json` auto-generates a valid OpenAPI 3.1.0 spec from the manifest, mapping each capability to a distinct path operation — a ChatGPT user creating a Custom GPT points their action at this URL and gets all MODE2/MODE3 capabilities as callable functions.
+
+Both integration endpoints are proxies over the same underlying AHP concierge. There is no duplicated logic: one knowledge base, one concierge, one auth model, three access paths (AHP native, MCP, OpenAPI). The integration layer is transparent.
+
+**The strategic implication:** AHP is not asking platforms to adopt a new standard. It is offering sites a single implementation that works across all of them. The value to a site is clear — implement AHP once, be accessible to any AHP-aware agent, Claude, and ChatGPT. As additional platforms emerge, new appendices extend the compatibility layer without changing the core protocol.
+
 ## 6. Related Work
 
 **Cloudflare's Markdown for Agents** [CLOUDFLARE] introduced clean markdown serving as an agent-accessible alternative to HTML. AHP's MODE1 is directly compatible with this approach and positions it as the entry point of a larger protocol.
@@ -497,6 +519,8 @@ Planned work for the visiting agent side includes:
 **llms.txt** [LLMSTXT] proposed a standard location for a site-level plain text document. AHP MODE1 treats `llms.txt` as a valid content endpoint. AHP provides the discovery layer, capability declaration, and upgrade path that `llms.txt` lacks.
 
 **Model Context Protocol (MCP)** [MCP] defines a standard for LLM tool access. AHP MODE3 is complementary: where MCP standardises how an agent calls a tool server, AHP defines how a website-side agent is discovered, queried, and delegated to. A MODE3 concierge may itself use MCP to access its tools.
+
+**MCP (Model Context Protocol)** [MCP]: Anthropic's open protocol for exposing tools and resources to Claude-based agents. AHP's `integrations.mcp` block (spec §4.4, Appendix D) maps AHP capabilities to MCP tools, allowing Claude Desktop and the Claude API to interact with AHP sites natively. AHP and MCP are complementary: MCP defines how an agent calls tools; AHP defines how a site declares and serves those tools with discovery, content signals, and session management.
 
 **OpenAI GPT Actions / Plugin specification** [GPTACTIONS]: the most widely deployed agent-web interaction mechanism prior to AHP. GPT Actions define structured API call schemas for LLM tool use. AHP differs by focusing on natural language querying through a concierge (rather than direct API schema exposure), by providing discovery and content signals, and by defining a progressive adoption path from static content through to agentic delegation.
 
