@@ -16,7 +16,7 @@ Format: `[version] YYYY-MM-DD — description`
 ## [0.1] 2026-02-21 — Initial draft
 
 - Initial specification covering MODE1, MODE2, and MODE3
-- Discovery mechanisms: well-known URI, Accept header, HTML link tag, in-page agent notice
+- Discovery mechanisms: well-known URI (MUST), HTTP Link header (SHOULD), in-page agent notice (SHOULD)
 - AHP Manifest schema
 - Conversational endpoint request/response format
 - Multi-turn session protocol with `session_id`

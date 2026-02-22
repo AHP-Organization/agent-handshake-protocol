@@ -61,7 +61,6 @@ AHP meets agents wherever they arrive — headless browsers, direct HTTP request
 | Discovery method | How it works |
 |-----------------|--------------|
 | **In-page notice** | An `<section aria-label="AI Agent Notice">` in the page body. Agents using headless browsers read this directly. |
-| **HTML link tag** | `<link rel="agent-manifest">` in `<head>`. Picked up by any agent parsing the DOM. |
 | **Accept header** | Respond to `Accept: application/agent+json` with the manifest or a redirect to it. |
 | **Well-known URI** | `GET /.well-known/agent.json` — the direct path for agents that know to look. |
 
@@ -85,7 +84,6 @@ AHP meets agents wherever they arrive — headless browsers, direct HTTP request
 2. Add to your HTML `<head>`:
 
    ```html
-   <link rel="agent-manifest" href="/.well-known/agent.json" type="application/agent+json">
    ```
 
 3. Add to your page body:

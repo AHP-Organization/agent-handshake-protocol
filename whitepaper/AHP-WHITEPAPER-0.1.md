@@ -100,8 +100,6 @@ AHP defines **three discovery mechanisms**, each targeting a distinct class of v
 2. **HTTP `Link` response header** — `Link: </.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"` sent proactively on every HTTP response (RFC 8288 [RFC8288]). Reaches HTTP-native agents that inspect response headers before parsing body content — invisible to HTML-parsing agents but present on all responses including API endpoints, 404 pages, and `HEAD` requests.
 3. **In-page agent notice** — a `<section aria-label="AI Agent Notice" style="display:none">` in the page body. Reaches LLMs reading page content as text — agents that arrived via a headless browser or were passed a page by a human user and have no direct HTTP awareness.
 
-The HTML `<link rel="agent-manifest">` tag is a MAY complement to mechanism 2 — it follows established web conventions and is familiar to developers, but it duplicates the HTTP `Link` header for HTML pages only. It is not a primary mechanism.
-
 The `Accept: application/agent+json` header is **not** a discovery mechanism — it is a capability negotiation signal for agents that already know a site supports AHP. It belongs in the request protocol, not the discovery layer (spec §3.4).
 
 #### 2.4.1 In-Page Notice: Scope, Limitation, and Path Forward

@@ -118,13 +118,6 @@ This mechanism targets agents that make raw HTTP requests and inspect response h
 add_header Link '</.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"' always;
 ```
 
-**HTML complement (MAY):** Sites serving HTML pages MAY additionally include the equivalent `<link>` tag in `<head>`:
-
-```html
-<link rel="agent-manifest" href="/.well-known/agent.json" type="application/agent+json">
-```
-
-The `<link>` tag is familiar to developers and follows established web conventions (cf. `<link rel="canonical">`), but it is a supplement to the HTTP `Link` header, not a substitute — it is absent from non-HTML responses and invisible to agents that don't parse HTML.
 
 ### 3.3 In-Page Agent Notice
 
@@ -852,7 +845,6 @@ AHP does not deprecate `llms.txt`. A site with an existing `llms.txt` can become
 1. Add `/.well-known/agent.json` with `modes: ["MODE1"]` and `endpoints.content: "/llms.txt"`
 2. Add the HTTP `Link` response header to all responses: `Link: </.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"` (Section 3.2)
 3. Add the in-page agent notice to HTML pages (Section 3.3)
-4. Optionally, add `<link rel="agent-manifest">` to HTML `<head>` as a complement to step 2 (Section 3.2, MAY)
 
 The `llms.txt` file becomes the content source for MODE1. When the site is ready to upgrade to MODE2, the same content can back the conversational endpoint.
 

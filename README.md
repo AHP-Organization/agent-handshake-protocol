@@ -36,7 +36,6 @@ Each mode is backwards compatible with the one before it. A MODE3 site is also a
 AHP meets agents where they are. Visiting agents find your endpoint through multiple paths:
 
 1. **In-page notice** — an `<section aria-label="AI Agent Notice">` block in the page body. Agents using headless browsers encounter this directly when reading the page.
-2. **HTML link tag** — `<link rel="agent-manifest">` in the document `<head>`
 3. **Accept header** — respond to `Accept: application/agent+json` with the manifest
 4. **Direct fetch** — `GET /.well-known/agent.json`
 
@@ -119,7 +118,6 @@ AHP meets agents where they are. Visiting agents find your endpoint through mult
 
 **MODE1 in 5 minutes:**
 1. Create `/.well-known/agent.json` with your manifest
-2. Add `<link rel="agent-manifest" href="/.well-known/agent.json" type="application/agent+json">` to your HTML `<head>`
 3. Add the in-page agent notice to your page body
 4. Point `endpoints.content` at your existing `/llms.txt` or a markdown page
 
