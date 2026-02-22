@@ -64,13 +64,15 @@ MODE3 changes the nature of the interaction: the visiting agent is no longer jus
 
 ### 2.4 Discovery
 
-AHP defines five discovery mechanisms, ordered by agent type:
+AHP defines **three discovery mechanisms**, each targeting a distinct class of visiting agent:
 
-1. **In-page agent notice** — a `<section aria-label="AI Agent Notice">` in the page body, visible to agents parsing raw HTML source. Note: headless browser agents that execute JavaScript and render the DOM may not see `display:none` content; the spec's guidance on visibility for headless agents is clarified in §2.4.1 below.
-2. **HTML `<link>` tag** — `<link rel="agent-manifest">` in `<head>`, discoverable by DOM-parsing agents
-3. **HTTP `Link` response header** — `Link: </.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"` sent proactively on every HTTP response (RFC 8288 [RFC8288]). Reaches agents that inspect response headers before or instead of parsing body content — including HTTP-native tool-calling agents and agents that issue `HEAD` requests for lightweight discovery. Unlike the HTML `<link>` tag, this header is present on non-HTML responses (API endpoints, 404 pages, redirects).
-4. **Accept header** — `Accept: application/agent+json` triggers a manifest redirect
-5. **Well-known URI** — direct `GET /.well-known/agent.json` per IETF RFC 8615 [RFC8615]; universal fallback for all agent types
+1. **Well-known URI** — `GET /.well-known/agent.json` per IETF RFC 8615 [RFC8615]. The universal fallback: any agent can fetch it directly. The only MUST in the discovery section.
+2. **HTTP `Link` response header** — `Link: </.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"` sent proactively on every HTTP response (RFC 8288 [RFC8288]). Reaches HTTP-native agents that inspect response headers before parsing body content — invisible to HTML-parsing agents but present on all responses including API endpoints, 404 pages, and `HEAD` requests.
+3. **In-page agent notice** — a `<section aria-label="AI Agent Notice" style="display:none">` in the page body. Reaches LLMs reading page content as text — agents that arrived via a headless browser or were passed a page by a human user and have no direct HTTP awareness.
+
+The HTML `<link rel="agent-manifest">` tag is a MAY complement to mechanism 2 — it follows established web conventions and is familiar to developers, but it duplicates the HTTP `Link` header for HTML pages only. It is not a primary mechanism.
+
+The `Accept: application/agent+json` header is **not** a discovery mechanism — it is a capability negotiation signal for agents that already know a site supports AHP. It belongs in the request protocol, not the discovery layer (spec §3.4).
 
 #### 2.4.1 In-Page Notice: Scope, Limitation, and Path Forward
 
@@ -157,7 +159,7 @@ The reference deployment was tested against the v5.3 test suite (T01–T23 + T21
 | Test | Category | AHP Ref | Notes |
 |------|----------|---------|-------|
 | T01: Well-known discovery | Discovery | ✓ | |
-| T02: Accept header discovery | Discovery | ✓ | |
+| T02: Accept header negotiation (spec §3.4) | Capability negotiation | ✓ | Not a discovery mechanism — confirms agents with prior AHP knowledge can retrieve manifest directly |
 | T03: In-page agent notice | Discovery | ✓ | Passes; API server exempt — see §2.4.1 |
 | T23: HTTP Link response header (§3.5) | Discovery | ✓ | Confirmed on /, /health, POST /agent/converse — all responses carry the header (v5.4) |
 | T04: Manifest schema | Protocol | ✓ | |
@@ -318,7 +320,7 @@ This result is neither surprising nor a condemnation of AHP. It correctly identi
 
 **What AHP provides over RAG:**
 
-1. **Protocol-level discovery**: four standardised discovery mechanisms. A RAG agent must know where to fetch the document; an AHP agent discovers capabilities through the protocol.
+1. **Protocol-level discovery**: three standardised discovery mechanisms. A RAG agent must know where to fetch the document; an AHP agent discovers capabilities through the protocol.
 2. **Capability declaration**: the visiting agent learns *what the site can do*, not just where content lives. MODE3 capabilities are only discoverable and accessible through AHP.
 3. **Session management, content signals, error handling**: provided by the protocol as primitives. A RAG agent reimplements these per site or forgoes them.
 4. **Retrieval infrastructure offloading**: at scale (100K+ token corpora), client-side keyword retrieval degrades significantly. AHP offloads retrieval to the server, where embedding-based approaches can be adopted without the visiting agent changing its implementation.
@@ -349,7 +351,7 @@ For high-traffic deployments, the v1 deployment guide will cover cost modelling,
 
 Search Engine Optimisation emerged because websites needed to be found and understood by crawlers that served humans through results pages. As AI agents increasingly mediate user access to web content, sites that are structurally accessible to agents may gain a measurable advantage in agent-directed traffic and task completion.
 
-**We propose the following mechanism as a hypothesis, not an established result**: sites that implement AHP provide agents with structured discovery (four mechanisms), capability declaration, and direct query channels. An agent encountering two equivalent sites — one AHP-compliant, one serving only HTML — may prefer the AHP site because it can complete its task more reliably with lower overhead. If this preference is consistent at the ecosystem level, AHP compliance would function analogously to SEO compliance: not a guarantee of preference, but a necessary condition for being efficiently accessible.
+**We propose the following mechanism as a hypothesis, not an established result**: sites that implement AHP provide agents with structured discovery (three mechanisms), capability declaration, and direct query channels. An agent encountering two equivalent sites — one AHP-compliant, one serving only HTML — may prefer the AHP site because it can complete its task more reliably with lower overhead. If this preference is consistent at the ecosystem level, AHP compliance would function analogously to SEO compliance: not a guarantee of preference, but a necessary condition for being efficiently accessible.
 
 This hypothesis requires validation through adoption-scale data — agent query logs, site traffic analytics with agent-tagged requests, and A/B comparisons of AHP vs. non-AHP response quality. We plan to instrument the reference deployment to collect this data in the coming months.
 

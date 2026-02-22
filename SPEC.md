@@ -87,6 +87,8 @@ The key words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", and "MAY" in this docu
 
 ## 3. Discovery
 
+AHP defines **three discovery mechanisms**, each targeting a distinct class of visiting agent. Sites SHOULD implement all three; the well-known URI (§3.1) is the only MUST.
+
 ### 3.1 Well-Known Manifest
 
 A site supporting AHP MUST serve a manifest at:
@@ -97,29 +99,38 @@ GET /.well-known/agent.json
 
 The response MUST have `Content-Type: application/json` and MUST be a valid AHP Manifest (Section 4).
 
-### 3.2 Accept Header Discovery
+This is the universal fallback: any agent can fetch it directly without prior knowledge of the site's structure.
 
-A site supporting AHP SHOULD inspect the `Accept` header on all requests. If a request includes `Accept: application/agent+json`, the site SHOULD respond with one of:
+### 3.2 HTTP Link Response Header
 
-- A `302` redirect to `/.well-known/agent.json`
-- A `200` response containing the manifest directly
-- A `Link` header pointing to the manifest: `Link: </.well-known/agent.json>; rel="agent-manifest"`
+Sites SHOULD include an RFC 8288 `Link` header on every HTTP response — proactively, on all responses including API endpoints, 404 pages, and redirects:
 
-### 3.3 HTML Link Tag
+```
+Link: </.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"
+```
 
-Sites SHOULD include the following `<link>` tag in HTML pages to enable discovery by traditional crawlers and browser-based agents:
+This mechanism targets agents that make raw HTTP requests and inspect response headers before or instead of parsing body content — including HTTP-native tool-calling agents and agents that issue `HEAD` requests for lightweight pre-flight discovery. It communicates manifest location at the transport layer, without requiring the agent to receive or parse any response body.
+
+**Implementation note:** Sites using a reverse proxy can add this header globally with a single configuration line:
+
+```nginx
+# nginx
+add_header Link '</.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"' always;
+```
+
+**HTML complement (MAY):** Sites serving HTML pages MAY additionally include the equivalent `<link>` tag in `<head>`:
 
 ```html
 <link rel="agent-manifest" href="/.well-known/agent.json" type="application/agent+json">
 ```
 
-### 3.4 In-Page Agent Notice
+The `<link>` tag is familiar to developers and follows established web conventions (cf. `<link rel="canonical">`), but it is a supplement to the HTTP `Link` header, not a substitute — it is absent from non-HTML responses and invisible to agents that don't parse HTML.
 
-Many AI agents interact with websites via headless browsers or HTML-to-text pipelines. In these cases, the agent's underlying LLM reads the rendered page content directly — it may not inspect headers, `<link>` tags, or well-known URIs unless explicitly prompted to.
+### 3.3 In-Page Agent Notice
 
-To reach these agents, sites SHOULD embed a human-readable, agent-targeted notice in the visible body of each page. This notice instructs the LLM to use AHP rather than parsing the page.
+Many AI agents interact with websites via headless browsers, HTML-to-text pipelines, or by receiving page content from a human user. In these cases, the agent's underlying LLM reads rendered page content directly — it may not inspect headers or well-known URIs unless explicitly prompted to.
 
-**Recommended HTML element:**
+To reach these agents, sites SHOULD embed a human-readable, agent-targeted notice in the visible body of each page:
 
 ```html
 <section
@@ -140,47 +151,35 @@ To reach these agents, sites SHOULD embed a human-readable, agent-targeted notic
 </section>
 ```
 
-**Important:** The notice SHOULD be visually hidden from human users (`display:none` or equivalent) but MUST remain in the DOM and be present in the raw HTML served to agents. The text MUST NOT be removed by JavaScript hydration in a way that eliminates it from the rendered text visible to headless browsers.
-
-**Rationale:** LLMs processing page content are reading text, not executing logic. A clearly worded, in-content notice is the most reliable way to reach an agent that arrived via a headless browser without prior knowledge of AHP. It mirrors the longstanding convention of human-readable notices in `robots.txt` and `humans.txt` — but targeted at the agent reading the page, not the developer reading the file.
+**Important:** The notice SHOULD be visually hidden from human users (`display:none` or equivalent) but MUST remain in the DOM and be present in the raw HTML. The text MUST NOT be removed by JavaScript hydration in a way that eliminates it from the rendered text visible to headless browsers.
 
 **Additional placement recommendations:**
 - On `404` and error pages — an agent following a broken link should still discover AHP
 - On API documentation pages — developer-targeting agents are high-value visitors
-- In site footers — catches agents that scroll to the end of a page looking for metadata
+- In site footers — catches agents that read to the end of a page looking for metadata
 
 Sites MAY use `aria-label="AI Agent Notice"` as a semantic hook; visiting agents that parse ARIA attributes can use this to locate the notice directly.
 
-### 3.5 HTTP Link Response Header
+### 3.4 Capability Negotiation (Accept Header)
 
-Sites SHOULD include an RFC 8288 `Link` header on every HTTP response — not only in response to `Accept: application/agent+json` requests (§3.2) but proactively on all responses including API endpoints, 404 pages, and redirects:
+This is not a discovery mechanism — it is a negotiation signal for agents that already know a site supports AHP.
 
-```
-Link: </.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"
-```
+A site supporting AHP SHOULD inspect the `Accept` header on all requests. If a request includes `Accept: application/agent+json`, the site SHOULD respond with:
 
-This mechanism targets agents that make raw HTTP requests and never parse HTML — including agents using headless HTTP clients, agents operating in tool-call mode, and agents that inspect response headers before deciding whether to parse body content. Unlike the HTML `<link>` tag (§3.3), the HTTP `Link` header is visible on non-HTML responses and can be inspected with a `HEAD` request alone.
+- A `302` redirect to `/.well-known/agent.json`, or
+- A `200` response containing the manifest directly
 
-**Rationale:** The HTML `<link>` tag requires the agent to receive and parse an HTML response body. The HTTP `Link` header communicates the same information at the transport layer, reaching a class of agents that §3.3 cannot. Together, §3.3 and §3.5 provide complementary coverage: in-document for HTML-parsing agents, in-header for HTTP-native agents.
+An agent sending this header already has prior knowledge of AHP (from a previous crawl, a directory, or a user instruction). The response shortcuts the discovery flow and delivers the manifest immediately.
 
-**Implementation note:** Sites implementing AHP via a reverse proxy (nginx, Caddy, Cloudflare Workers) can add this header globally with a single configuration line, requiring no changes to the origin application:
+### 3.5 Discovery Priority
 
-```nginx
-# nginx example
-add_header Link '</.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"' always;
-```
+Visiting agents encountering an unknown site SHOULD attempt discovery in the following order:
 
-### 3.6 Discovery Priority
+1. Check rendered page content for `aria-label="AI Agent Notice"` or class `ahp-notice` (§3.3)
+2. Inspect the HTTP `Link` response header for `rel="agent-manifest"` (§3.2)
+3. Fetch `/.well-known/agent.json` directly (§3.1)
 
-Visiting agents SHOULD attempt discovery in the following order:
-
-1. Check rendered page content for an element with `aria-label="AI Agent Notice"` or class `ahp-notice`
-2. Parse `<link rel="agent-manifest">` from HTML `<head>`
-3. Inspect `Link` response header for `rel="agent-manifest"` (present on all responses, §3.5)
-4. Send `Accept: application/agent+json` and follow the redirect or parse the response
-5. Fetch `/.well-known/agent.json` directly
-
-Agents arriving via headless browser will typically encounter mechanisms 1 and 2 first. Agents making direct HTTP requests will encounter mechanisms 3, 4, and 5. Mechanism 5 (well-known URI) is the universal fallback that works for all agent types.
+Agents with prior knowledge of a site's AHP support MAY use the `Accept: application/agent+json` header (§3.4) to bypass discovery and retrieve the manifest directly.
 
 ---
 
