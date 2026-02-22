@@ -166,13 +166,21 @@ An agent sending this header already has prior knowledge of AHP (from a previous
 
 ### 3.5 Discovery Priority
 
-Visiting agents encountering an unknown site SHOULD attempt discovery in the following order:
+Discovery priority depends on the agent's access model. Two cases apply:
 
-1. Check rendered page content for `aria-label="AI Agent Notice"` or class `ahp-notice` (§3.3)
-2. Inspect the HTTP `Link` response header for `rel="agent-manifest"` (§3.2)
-3. Fetch `/.well-known/agent.json` directly (§3.1)
+**HTTP-capable agents** (agents that can make direct HTTP requests to the site):
 
-Agents with prior knowledge of a site's AHP support MAY use the `Accept: application/agent+json` header (§3.4) to bypass discovery and retrieve the manifest directly.
+1. Fetch `/.well-known/agent.json` directly (§3.1) — cheapest, most reliable, no body parsing required
+2. Inspect the HTTP `Link` response header for `rel="agent-manifest"` on an incidental request (§3.2) — useful when the agent is already making a request for another purpose
+3. Check rendered page content for `aria-label="AI Agent Notice"` or class `ahp-notice` (§3.3) — last resort; most expensive and most fragile (depends on DOM structure, JS hydration, and CSS visibility)
+
+**Headless browser / content-only agents** (agents that received page content from a browser pipeline or from a user, without direct HTTP access):
+
+1. Check rendered page content for `aria-label="AI Agent Notice"` or class `ahp-notice` (§3.3) — only mechanism available without making a separate HTTP request
+
+Agents with prior knowledge of a site's AHP support MAY use the `Accept: application/agent+json` header (§3.4) to bypass discovery entirely and retrieve the manifest directly.
+
+**Rationale:** The well-known URI is a single HTTP GET with no body parsing — O(1) and deterministic. In-page notice parsing depends on document structure, JavaScript execution, and CSS visibility handling; it should be a fallback for agents that have no other option, not a first step for agents that can make HTTP requests.
 
 ---
 
@@ -436,10 +444,12 @@ To continue, the visiting agent resubmits with the same `session_id` and a `clar
 ### 6.5 Session Constraints
 
 Implementations SHOULD enforce:
-- Maximum 10 turns per session
-- Session expiry after 10 minutes of inactivity
-- Request body cap of 8KB
-- Rate limiting per IP and optionally per `requesting_agent`
+- **Maximum 10 turns per session** — bounds the LLM cost of a single agent interaction; most legitimate queries resolve in 1–3 turns. Implementers serving complex multi-step workflows MAY increase this limit, but SHOULD require authentication for sessions above 10 turns.
+- **Session expiry after 10 minutes of inactivity** — limits in-memory session accumulation on the server; balances useful multi-turn context against resource consumption. Implementers with authenticated, long-running agent workflows MAY extend this to 30–60 minutes.
+- **Request body cap of 8KB** — prevents prompt injection via oversized payloads and bounds memory allocation per request. Typical well-formed AHP requests are under 1KB; 8KB is generous headroom for structured `context` objects while excluding pathological inputs.
+- **Rate limiting per IP and optionally per `requesting_agent`** — see Section 11 for required headers and recommended defaults (30 req/min unauthenticated, 120 req/min authenticated).
+
+These defaults are conservative starting points, not mandated constants. Implementers SHOULD adjust them based on their cost model, authentication posture, and expected agent behaviour.
 
 ### 6.6 Response Content Types
 
@@ -744,7 +754,7 @@ The `ahp` field in both the manifest and requests carries the protocol version.
 
 ## 14. Examples
 
-### 13.1 Minimal MODE1 Implementation
+### 14.1 Minimal MODE1 Implementation
 
 ```
 /.well-known/agent.json  → AHP manifest with modes: ["MODE1"]
@@ -753,7 +763,7 @@ The `ahp` field in both the manifest and requests carries the protocol version.
 
 A visiting agent fetches the manifest, finds the content URL, retrieves `/llms.txt`, and processes it locally. Zero server-side logic required.
 
-### 13.2 MODE2 Query Flow
+### 14.2 MODE2 Query Flow
 
 ```
 Visiting Agent                          Site Concierge
@@ -770,7 +780,7 @@ Visiting Agent                          Site Concierge
      │        response: { answer, sources }} │
 ```
 
-### 13.3 MODE3 Human Escalation Flow
+### 14.3 MODE3 Human Escalation Flow
 
 ```
 Visiting Agent                          Site Concierge + Human

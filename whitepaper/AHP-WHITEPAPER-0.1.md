@@ -375,21 +375,39 @@ For context, static file serving at 10K requests/day costs near $0/month on CDN-
 
 For high-traffic deployments, the v1 deployment guide will cover cost modelling, cache pre-warming strategies, and hybrid architectures where common queries are pre-cached and only novel queries invoke the LLM.
 
-### 5.2 AHP and Agent-Native Web Presence
+### 5.2 AHP as Agent-Native Complement to SEO
 
-Search Engine Optimisation emerged because websites needed to be found and understood by crawlers that served humans through results pages. As AI agents increasingly mediate user access to web content, sites that are structurally accessible to agents may gain a measurable advantage in agent-directed traffic and task completion.
+An important distinction: AHP is not a successor to SEO and does not address discoverability, ranking, or the business incentives that SEO optimises for. A site implementing AHP does not become more findable to agents than one that does not — AHP has no equivalent of PageRank, no index, no signal that rewards compliance.
 
-**We propose the following mechanism as a hypothesis, not an established result**: sites that implement AHP provide agents with structured discovery (three mechanisms), capability declaration, and direct query channels. An agent encountering two equivalent sites — one AHP-compliant, one serving only HTML — may prefer the AHP site because it can complete its task more reliably with lower overhead. If this preference is consistent at the ecosystem level, AHP compliance would function analogously to SEO compliance: not a guarantee of preference, but a necessary condition for being efficiently accessible.
+What AHP does address is *legibility and capability* once a site has been found. SEO gets an agent to your door; AHP determines what happens when it knocks. These are complementary, not competing, concerns.
 
-This hypothesis requires validation through adoption-scale data — agent query logs, site traffic analytics with agent-tagged requests, and A/B comparisons of AHP vs. non-AHP response quality. We plan to instrument the reference deployment to collect this data in the coming months.
+**A bounded hypothesis:** sites that implement AHP may gain a measurable advantage in *task completion rate* over non-AHP sites among agents that are AHP-aware. An agent encountering two sites that both answer its query — one returning a structured, sourced AHP response, one requiring HTML parsing — may prefer the AHP site for subsequent interactions, simply because interactions are more reliable and less ambiguous. If this preference accumulates at ecosystem scale, AHP compliance could function as an agent-era quality signal, analogous to structured data markup (Schema.org) in the SEO world: not a ranking factor directly, but a marker of machine-legibility that correlates with better agent outcomes.
 
-### 5.3 Progressive Adoption
+This hypothesis requires validation through adoption-scale data — agent query logs, site traffic analytics with agent-tagged requests, and A/B comparisons of AHP vs. non-AHP task completion rates. We plan to instrument the reference deployment to collect this data in the coming months.
+
+### 5.3 The Business Model Question: Why Would a Site Implement AHP?
+
+This question deserves a direct answer. A site implementing MODE2 is running an LLM-backed retrieval service for any visiting agent — at its own cost. The reference cost model (§5.1) shows this is manageable at low-to-medium query volumes with good cache hit rates, but the cost is real and the question is legitimate: what does a site get in return?
+
+**The honest answer depends on the site's relationship to agents:**
+
+**Sites where agents are the customer pipeline.** For a growing class of sites — developer tools, SaaS products, API providers, documentation hubs — AI agents are already a primary access vector. Developers use agents to explore APIs, understand integration options, and generate code. A site without AHP gets scraped; a site with AHP gets queried intelligently, with sessions, capability declaration, and structured responses. AHP is not an altruistic investment here — it is an acquisition channel.
+
+**Sites where MODE3 generates direct revenue.** An e-commerce site implementing MODE3 (`inventory_check`, `get_quote`, `order_lookup`) turns agent queries into sales funnel entries. The cost of an LLM-backed inventory query is a fraction of the cost of a human customer service interaction, and MODE3 scales without additional staff. Sites with existing chatbot or live-chat infrastructure will recognise this model — AHP standardises and makes it interoperable.
+
+**Sites where agent-legibility is a content quality investment.** A media site, knowledge base, or professional services firm that implements MODE2 is investing in the quality of how its content reaches agents acting on behalf of humans. As agent-mediated access to information grows, the sites that invest in structured, accurate, agent-readable responses now are building a content moat. The cost is low at moderate traffic; the asymmetric benefit is that poorly-legible sites get misrepresented by agents that scrape and hallucinate.
+
+**The case for not implementing MODE2/MODE3:** if a site has very high query volume from agents, no authentication layer, and no business value from accurate agent responses, the cost-benefit may not justify MODE2. MODE1 (static manifest + `llms.txt`) is always zero marginal cost and provides meaningful agent-legibility at no runtime expense. Sites should not feel compelled to implement MODE2 unless they have a clear use case.
+
+**Rate limiting as cost control.** The spec's rate limits (30 req/min unauthenticated, 120 req/min authenticated) are the primary cost control mechanism. Sites SHOULD implement these defaults and SHOULD require authentication for high-volume or MODE3 access. An authenticated agent interaction implies an established relationship — the site can assign a token budget, track usage, and charge for it if the value exchange warrants it.
+
+### 5.4 Progressive Adoption
 
 We designed AHP explicitly for progressive adoption. A MODE1 site adds one file (`/.well-known/agent.json`), one HTTP response header (the RFC 8288 `Link` header, often a single nginx line), and an in-page notice to become compliant. Our reference implementation takes a developer from zero to MODE2 in an afternoon. MODE3 requires additional infrastructure (tool integrations, an async queue) but no changes to the lower modes.
 
 This progression matters for ecosystem adoption. The content quality caveat applies to all modes: a MODE1 site with a poorly-structured `llms.txt` provides minimal value to visiting agents regardless of manifest completeness. The five-minute compliance figure refers to the structural elements; high-quality content preparation is a separate investment.
 
-### 5.4 Visiting Agent Side
+### 5.5 Visiting Agent Side
 
 The current AHP specification and reference implementation focus entirely on the *site side* — what a site must do to be AHP-compliant. The *visiting agent side* — how an agent discovers, selects, and interacts with AHP-compliant sites — is intentionally underspecified in v0.1.
 
@@ -399,7 +417,7 @@ Planned work for the visiting agent side includes:
 - Cross-site session federation: how does an agent maintain context across multiple AHP sites in a single task?
 - Standardised agent identity: the `requesting_agent` field is currently free-text; a v1 identity scheme (building on W3C DIDs [DID] or signed JWTs) would enable site-side access control and personalisation
 
-### 5.5 Limitations
+### 5.6 Limitations
 
 1. **Retrieval quality ceiling**: the v0 keyword overlap retrieval degrades on large, ambiguous corpora. Embedding-based retrieval is planned for v1.
 2. **Conformance scope**: results cover only the reference implementation (co-developed with the spec). No independent third-party implementations have been tested. The test suite is open and accepts community submissions (see §4.1).
