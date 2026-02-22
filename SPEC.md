@@ -236,6 +236,16 @@ The manifest is the handshake opener. It tells a visiting agent everything it ne
   },
   "async": {
     "supported": false
+  },
+  "integrations": {
+    "mcp": {
+      "url": "/mcp",
+      "version": "2024-11-05"
+    },
+    "openapi": {
+      "url": "/openapi.json",
+      "version": "3.1.0"
+    }
   }
 }
 ```
@@ -259,6 +269,65 @@ The manifest is the handshake opener. It tells a visiting agent everything it ne
 | `authentication` | string | Auth scheme: `"none"`, `"bearer"`, `"api_key"` |
 | `rate_limit` | string | Request limit in `"N/period"` format |
 | `async` | object | Async capability declaration (see Section 9) |
+| `integrations` | object | Platform compatibility declarations (see §4.4). Each key is a platform identifier; each value contains at minimum a `url` field. |
+
+---
+
+## 4.4 Platform Integrations
+
+The `integrations` object in the manifest declares compatibility with external agent platforms. It enables visiting agents built on those platforms to interact with AHP sites through familiar, platform-native protocols — without requiring the platform to natively understand AHP.
+
+**Supported integration types:**
+
+### 4.4.1 MCP (Model Context Protocol)
+
+MCP is Anthropic's open protocol for exposing tools and resources to Claude-based agents. AHP MODE3 capabilities map directly to MCP tools; the AHP knowledge base maps to MCP resources.
+
+```json
+"integrations": {
+  "mcp": {
+    "url": "/mcp",
+    "version": "2024-11-05"
+  }
+}
+```
+
+An AHP server declaring an MCP integration MUST serve a JSON-RPC 2.0 endpoint at the declared URL supporting at minimum:
+
+- `initialize` — protocol handshake
+- `tools/list` — returns all MODE3 action capabilities as MCP tool definitions
+- `tools/call` — invokes a capability and returns the result
+- `resources/list` — returns MODE1/MODE2 content endpoints as MCP resources
+
+The mapping from AHP capabilities to MCP tools is defined in Appendix D.
+
+Claude Desktop, the Claude API in agentic mode, and any MCP-compatible client can connect to an AHP site's MCP endpoint directly, with no knowledge of AHP required.
+
+### 4.4.2 OpenAPI / GPT Actions
+
+OpenAI's GPT Actions use OpenAPI 3.x specs to define callable API endpoints for Custom GPTs and the ChatGPT API. An AHP site can expose its capabilities as an OpenAPI spec, making them available as GPT Actions without requiring OpenAI to natively support AHP.
+
+```json
+"integrations": {
+  "openapi": {
+    "url": "/openapi.json",
+    "version": "3.1.0"
+  }
+}
+```
+
+An AHP server declaring an OpenAPI integration MUST serve a valid OpenAPI 3.1.x document at the declared URL. The document MUST describe each AHP capability as a distinct path operation. The mapping from AHP capabilities to OpenAPI path items is defined in Appendix E.
+
+A ChatGPT user creating a Custom GPT points their action at `/openapi.json`; all AHP capabilities become available as GPT Actions with no additional configuration.
+
+### 4.4.3 Compatibility Principles
+
+Platform integrations follow these principles:
+
+1. **Additive only.** An `integrations` block never modifies AHP behaviour — it declares additional access paths. A site without `integrations` is fully AHP-compliant; a site with `integrations` is AHP-compliant plus interoperable with additional platforms.
+2. **Proxied, not duplicated.** Integration endpoints SHOULD proxy to the underlying AHP endpoint (`POST /agent/converse`), not implement separate logic. A single concierge implementation serves all access paths.
+3. **Same auth model.** Authentication requirements declared in the manifest apply equally to integration endpoints. A bearer-token-required capability requires the same bearer token via MCP or OpenAPI as via direct AHP.
+4. **Declared, not assumed.** An agent MUST NOT assume MCP or OpenAPI endpoints exist without checking the `integrations` block in the manifest first.
 
 ---
 
@@ -1097,6 +1166,273 @@ To formally propose a new core content type:
 4. If accepted, a PR adds it to Appendix C and the type is included in the next minor revision
 
 Until a proposal is accepted, use the `x-` prefix.
+
+
+---
+
+## Appendix D: MCP Compatibility
+
+This appendix defines the normative mapping from AHP capabilities to MCP (Model Context Protocol) tool and resource definitions, and the required behaviour for AHP servers exposing an MCP integration endpoint.
+
+### D.1 Transport
+
+AHP MCP endpoints MUST support the HTTP transport (JSON-RPC 2.0 over HTTP POST). Servers MAY additionally support Server-Sent Events (SSE) for streaming responses.
+
+**Endpoint:** declared in `integrations.mcp.url` (e.g. `POST /mcp`)
+**Content-Type:** `application/json`
+**Protocol version:** `2024-11-05` (MCP 1.0)
+
+### D.2 Required Methods
+
+| JSON-RPC method | AHP behaviour |
+|----------------|---------------|
+| `initialize` | Returns server info, protocol version, and capability declaration |
+| `tools/list` | Returns all MODE3 `action_required: true` capabilities as MCP tool definitions |
+| `tools/call` | Invokes the named AHP capability via `POST /agent/converse`; proxies auth |
+| `resources/list` | Returns MODE1 content endpoints and MODE2 knowledge capabilities as MCP resources |
+| `resources/read` | Fetches a resource URI and returns its content |
+
+MODE2 non-action capabilities MAY be exposed as both MCP tools (callable with a query string) and MCP resources (fetchable at a URI). Implementers SHOULD prefer exposing them as tools for maximum compatibility.
+
+### D.3 Capability → Tool Mapping
+
+Each AHP MODE3 capability maps to one MCP tool definition:
+
+**AHP capability:**
+```json
+{
+  "name": "inventory_check",
+  "description": "Check stock levels and availability for a product",
+  "mode": "MODE3",
+  "auth_required": true,
+  "response_types": ["application/data", "text/answer"]
+}
+```
+
+**MCP tool definition:**
+```json
+{
+  "name": "inventory_check",
+  "description": "Check stock levels and availability for a product",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Natural language query about product availability"
+      },
+      "session_id": {
+        "type": "string",
+        "description": "Optional: continue an existing conversation session"
+      }
+    },
+    "required": ["query"]
+  }
+}
+```
+
+**Rules:**
+- `name` MUST match the AHP capability `name` exactly
+- `description` SHOULD be taken from the AHP capability `description`
+- All tools MUST accept `query` (string, required) and `session_id` (string, optional)
+- Tool-specific parameters MAY be added for capabilities with structured inputs
+
+### D.4 `tools/call` → AHP Request Mapping
+
+When a MCP client calls a tool, the server MUST proxy it to `POST /agent/converse`:
+
+```json
+// MCP tools/call request
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "inventory_check",
+    "arguments": {
+      "query": "Is AHP-IMPL-001 in stock?",
+      "session_id": "abc-123"
+    }
+  }
+}
+```
+
+Maps to:
+
+```json
+// AHP /agent/converse request
+{
+  "capability": "inventory_check",
+  "query": "Is AHP-IMPL-001 in stock?",
+  "session_id": "abc-123",
+  "auth": "<bearer token from MCP _meta or Authorization header>"
+}
+```
+
+The MCP response MUST contain the AHP `response.answer` as `content[0].text`, and MAY include additional content blocks for structured data.
+
+### D.5 Authentication Passthrough
+
+MCP does not define a native auth mechanism. AHP MCP endpoints MUST accept bearer tokens via:
+1. The HTTP `Authorization: Bearer <token>` header on the MCP request, OR
+2. A `_meta.auth` field in the `params` object of any `tools/call` request
+
+The server MUST apply the same auth requirements to MCP tool calls as to direct AHP requests.
+
+### D.6 `initialize` Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {
+      "tools": {},
+      "resources": {}
+    },
+    "serverInfo": {
+      "name": "<manifest.name>",
+      "version": "<ahp version>",
+      "ahp": "0.1",
+      "manifest": "/.well-known/agent.json"
+    }
+  }
+}
+```
+
+The `serverInfo.manifest` field lets MCP-native clients discover the full AHP manifest for richer interaction.
+
+---
+
+## Appendix E: OpenAPI / GPT Actions Compatibility
+
+This appendix defines the normative mapping from AHP capabilities to OpenAPI 3.1.x path items, and the required behaviour for AHP servers exposing an OpenAPI integration endpoint.
+
+### E.1 Document Structure
+
+The OpenAPI document served at `integrations.openapi.url` MUST conform to OpenAPI 3.1.0 and MUST include:
+
+- `info.title` — from `manifest.name`
+- `info.description` — from `manifest.description`
+- `info.version` — AHP protocol version
+- `servers[0].url` — the site's base URL
+- One path per AHP capability (see §E.2)
+- A `components.securitySchemes` block if authentication is required
+
+### E.2 Capability → Path Mapping
+
+Each AHP capability maps to a `POST` operation at `/capabilities/{capability_name}`:
+
+**AHP capability:**
+```json
+{
+  "name": "get_quote",
+  "description": "Calculate a price quote for one or more products",
+  "mode": "MODE3",
+  "auth_required": true
+}
+```
+
+**OpenAPI path item:**
+```yaml
+/capabilities/get_quote:
+  post:
+    operationId: get_quote
+    summary: Calculate a price quote for one or more products
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [query]
+            properties:
+              query:
+                type: string
+                description: Natural language description of the quote request
+              session_id:
+                type: string
+                description: Optional session ID to continue an existing conversation
+    responses:
+      '200':
+        description: Successful response
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AHPResponse'
+      '400':
+        description: Bad request
+      '401':
+        description: Authentication required
+      '429':
+        description: Rate limit exceeded
+```
+
+The server MUST proxy requests to this path to `POST /agent/converse` with `capability` set to the path's capability name.
+
+### E.3 AHPResponse Schema
+
+All capability paths share a common response schema:
+
+```yaml
+components:
+  schemas:
+    AHPResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success, clarification_needed, accepted, error]
+        session_id:
+          type: string
+        response:
+          type: object
+          properties:
+            content_type:
+              type: string
+            answer:
+              type: string
+            sources:
+              type: array
+              items:
+                type: object
+        meta:
+          type: object
+          properties:
+            mode:
+              type: string
+            cached:
+              type: boolean
+            tokens_used:
+              type: integer
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+```
+
+### E.4 GPT Actions Integration
+
+To add an AHP site as a ChatGPT GPT Action:
+
+1. Create a Custom GPT at chat.openai.com
+2. Under "Actions", add a new action
+3. Enter the site's OpenAPI URL (e.g. `https://example.com/openapi.json`)
+4. ChatGPT imports all AHP capabilities as callable functions
+5. If the site requires authentication, add the bearer token under "Authentication"
+
+The AHP site's concierge handles all natural language processing; the GPT receives structured AHP responses and can present them to the user.
+
+### E.5 Capability Filtering
+
+The OpenAPI document SHOULD only expose capabilities appropriate for the integration context:
+
+- MODE1 capabilities (static content) SHOULD be omitted or exposed as GET operations on their content URLs, not as POST capabilities
+- MODE3 capabilities with `auth_required: true` MUST include the appropriate security scheme
+- Async capabilities (returning `status: accepted`) MUST document the polling pattern in their operation description
 
 ---
 
