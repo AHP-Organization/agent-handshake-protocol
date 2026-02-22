@@ -518,7 +518,7 @@ Content signals allow site owners to declare their preferences for AI usage of t
 | `search` | boolean | May this content be indexed for AI-powered search? |
 | `attribution_required` | boolean | Must the source be cited when content is used? |
 
-Visiting agents and downstream systems MUST respect `ai_train: false` by not including the response content in training pipelines. AHP does not enforce this technically — it is a declaration of intent and a legal/ethical signal.
+Visiting agents and downstream systems SHOULD respect `ai_train: false` by not including the response content in training pipelines. AHP does not technically enforce this — it is a declaration of intent and a legal/ethical signal. A future revision may define cryptographic content-signal assertions to enable stronger enforcement.
 
 A future AHP revision may define a signed content signals extension for stronger assertions.
 
