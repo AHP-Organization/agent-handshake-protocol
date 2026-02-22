@@ -102,6 +102,8 @@ AHP defines **three discovery mechanisms**, each targeting a distinct class of v
 
 The `Accept: application/agent+json` header is **not** a discovery mechanism — it is a capability negotiation signal for agents that already know a site supports AHP. It belongs in the request protocol, not the discovery layer (spec §3.4).
 
+**Priority order matters.** HTTP-capable agents should attempt the well-known URI first — it is a single HTTP GET with no body parsing, deterministic, and works for all agent types. The HTTP `Link` header is useful when the agent is already making a request for another purpose (incidental discovery). The in-page notice should be a last resort, not a first step: it is the most expensive mechanism (requires DOM or raw-HTML parsing) and the most fragile (depends on JS hydration, CSS visibility, and DOM structure). Reserve it for agents that have no direct HTTP access — those operating inside a headless browser pipeline or receiving page content from a user.
+
 #### 2.4.1 In-Page Notice: Scope, Limitation, and Path Forward
 
 The in-page notice spec recommends the element be visually hidden (`display:none`) while remaining in the DOM. This ensures the notice does not disrupt human UX. However, this creates a coverage gap:
@@ -407,17 +409,73 @@ We designed AHP explicitly for progressive adoption. A MODE1 site adds one file 
 
 This progression matters for ecosystem adoption. The content quality caveat applies to all modes: a MODE1 site with a poorly-structured `llms.txt` provides minimal value to visiting agents regardless of manifest completeness. The five-minute compliance figure refers to the structural elements; high-quality content preparation is a separate investment.
 
-### 5.5 Visiting Agent Side
+### 5.5 Trust, Identity, and the Security Surface
+
+This section warrants directness: AHP v0.1 has a weak identity model, and any enterprise security team evaluating it should understand the implications before deploying MODE3.
+
+#### 5.5.1 The Current State
+
+The `requesting_agent` field in every AHP request is a free-text string — self-reported and entirely unverified. Any agent can claim to be any agent. There is no cryptographic attestation, no issuer authority, no revocation mechanism. A request claiming `requesting_agent: "TrustedEnterpriseBot/1.0"` is indistinguishable from one claiming any other identity.
+
+For MODE1 and MODE2, this is largely acceptable: these modes are read-only. An agent asking questions about site content — even under a false identity — can only receive information the site intended to make available. The worst case is rate limit evasion by a bad actor rotating claimed identities.
+
+**MODE3 is a different risk surface.** MODE3 actions can have real-world side effects: booking appointments, placing orders, escalating issues to human operators, executing calculations that inform financial decisions. These are not read operations. An unauthenticated agent that can call `get_quote` or `order_lookup` — or worse, a future `place_order` capability — presents risks that are not addressable by rate limiting alone.
+
+The reference implementation's T17 failure (MODE3 actions accept unauthenticated requests, HTTP 200) is not an acceptable configuration for production. It exists in the demo to reduce friction; it must not exist in any deployment where MODE3 capabilities have real-world consequences.
+
+#### 5.5.2 Interim Mitigations (Available Today)
+
+AHP v0.1 does not solve identity, but it provides the hooks for implementers to layer security on top:
+
+**Bearer tokens (recommended for all MODE3 deployments):** the `auth` field in AHP requests accepts a bearer token: `"auth": "Bearer <token>"`. Sites SHOULD issue API keys to known agents and require them for all MODE3 capabilities. This is not cryptographically strong identity — it proves possession of a secret, not the agent's identity — but it establishes an accountable access relationship and enables per-key rate limiting, auditing, and revocation.
+
+```json
+{
+  "capability": "get_quote",
+  "query": "...",
+  "auth": "Bearer ahp_sk_prod_xyz..."
+}
+```
+
+**Capability-level auth enforcement:** MODE3 action capabilities MUST require auth (spec §5.3). Read capabilities (MODE2) MAY be open. The manifest's `auth_required` field per capability lets sites declare this policy; the concierge MUST enforce it.
+
+**Human-in-the-loop for high-stakes actions:** the async model (§6.4) is an underutilised security primitive. A `place_order` or `book_appointment` capability that returns `accepted` and routes to a human for approval before execution provides a natural circuit breaker. An adversarial agent cannot complete the action without a human seeing it.
+
+**IP allowlisting and agent registration:** for enterprise integrations where agent origin is known, IP-based allowlisting provides a practical first layer. Combining IP allowlisting with bearer tokens gives two independent factors without requiring cryptographic infrastructure.
+
+#### 5.5.3 The Path to Stronger Identity
+
+AHP v1 will introduce a formal identity layer. Two approaches are under consideration:
+
+**Signed JWT attestations:** a visiting agent presents a JWT signed by a known issuer (the agent's operator or a trusted AHP identity provider). The site validates the signature against a published public key. This enables cryptographically verified agent identity without requiring centralised infrastructure, and integrates naturally with existing OAuth/OIDC infrastructure that enterprises already operate.
+
+**W3C Decentralized Identifiers (DIDs) [DID]:** agents present a DID that resolves to a DID Document containing public keys and service endpoints. Sites verify signatures without a central authority. DIDs are appropriate for agents operating across organisational boundaries where no shared IdP exists.
+
+Both approaches would make the `requesting_agent` field a verifiable claim rather than an assertion, enabling site-side access control policies, personalisation, audit trails, and per-agent rate limit tiers.
+
+#### 5.5.4 Guidance for Enterprise Implementers
+
+Before deploying AHP MODE3 in a production environment:
+
+1. **Do not deploy the reference implementation's T17 configuration** — enforce auth on all MODE3 action capabilities
+2. **Issue bearer tokens to all agent integrations** — treat them as API keys with the same lifecycle management (rotation, expiry, revocation logging)
+3. **Scope capabilities conservatively** — only expose MODE3 actions that the authenticated agent has a legitimate reason to call; use separate API keys with different capability scopes for different integrations
+4. **Route consequential actions through the async human-approval model** — any action that can't be trivially undone (orders, bookings, account changes) should require human sign-off before execution
+5. **Plan for the v1 identity layer** — design your auth integration to be replaceable; the bearer token approach should be a stepping stone to signed attestations, not a permanent solution
+
+MODE2 deployments open to unauthenticated agents carry lower risk but are not risk-free: rate limiting, input validation (spec §5.2), and monitoring for prompt injection patterns are still essential.
+
+### 5.6 Visiting Agent Side
 
 The current AHP specification and reference implementation focus entirely on the *site side* — what a site must do to be AHP-compliant. The *visiting agent side* — how an agent discovers, selects, and interacts with AHP-compliant sites — is intentionally underspecified in v0.1.
 
 Planned work for the visiting agent side includes:
 - A reference visiting agent library (Python and TypeScript) that handles discovery, manifest parsing, capability selection, and session management
-- Trust evaluation heuristics: how should a visiting agent decide whether to use a site's MODE3 capabilities?
+- Trust evaluation heuristics: how should a visiting agent decide whether to use a site's MODE3 capabilities, and how should it evaluate the trustworthiness of a site's concierge?
 - Cross-site session federation: how does an agent maintain context across multiple AHP sites in a single task?
-- Standardised agent identity: the `requesting_agent` field is currently free-text; a v1 identity scheme (building on W3C DIDs [DID] or signed JWTs) would enable site-side access control and personalisation
+- Standardised agent identity: the v1 identity scheme described in §5.5.3 (signed JWTs or W3C DIDs) will require visiting agent support for key management and signature generation
 
-### 5.6 Limitations
+### 5.7 Limitations
 
 1. **Retrieval quality ceiling**: the v0 keyword overlap retrieval degrades on large, ambiguous corpora. Embedding-based retrieval is planned for v1.
 2. **Conformance scope**: results cover only the reference implementation (co-developed with the spec). No independent third-party implementations have been tested. The test suite is open and accepts community submissions (see §4.1).
