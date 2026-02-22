@@ -1,3 +1,10 @@
+---
+title: Specification
+layout: default
+nav_order: 2
+permalink: /spec
+---
+
 # Agent Handshake Protocol (AHP)
 ## Specification — Draft 0.1
 

@@ -1,0 +1,36 @@
+title: Agent Handshake Protocol
+description: The open protocol for how AI agents discover and interact with websites.
+baseurl: ""
+url: "https://agenthandshake.dev"
+
+remote_theme: just-the-docs/just-the-docs@v0.10.0
+
+plugins:
+  - jekyll-remote-theme
+  - jekyll-seo-tag
+
+# Just the Docs settings
+color_scheme: dark
+search_enabled: true
+heading_anchors: true
+permalink: pretty
+
+aux_links:
+  "GitHub ↗":
+    - "https://github.com/AHP-Organization/agent-handshake-protocol"
+
+aux_links_new_tab: true
+
+nav_sort: order
+
+footer_content: "© 2026 Nick Allain and contributors. Specification: <a href=\"https://creativecommons.org/licenses/by/4.0/\">CC BY 4.0</a>. Code: MIT. Draft 0.1."
+
+# SEO
+logo: "/assets/images/logo.png"
+
+# Exclude from site build
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - "*.gemspec"
+  - README.md

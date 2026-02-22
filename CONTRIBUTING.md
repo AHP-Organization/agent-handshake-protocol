@@ -1,3 +1,10 @@
+---
+title: Contributing
+layout: default
+nav_order: 3
+permalink: /contributing
+---
+
 # Contributing to AHP
 
 Thanks for wanting to improve the protocol. AHP is an open specification — its quality depends on people who find the holes and push back on bad decisions.

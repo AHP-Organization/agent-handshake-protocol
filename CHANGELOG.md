@@ -1,3 +1,10 @@
+---
+title: Changelog
+layout: default
+nav_order: 4
+permalink: /changelog
+---
+
 # Changelog
 
 All notable changes to the AHP specification are documented here.
