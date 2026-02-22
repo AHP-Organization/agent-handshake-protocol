@@ -1,0 +1,208 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agenthandshake.dev/schema/0.1/manifest.json",
+  "title": "AHP Manifest",
+  "description": "The Agent Handshake Protocol manifest. Served at /.well-known/agent.json.",
+  "type": "object",
+  "required": ["ahp", "modes", "content_signals"],
+  "additionalProperties": false,
+  "properties": {
+    "ahp": {
+      "type": "string",
+      "description": "AHP protocol version.",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "examples": ["0.1"]
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable name of the site.",
+      "maxLength": 128
+    },
+    "description": {
+      "type": "string",
+      "description": "Brief description of the site for visiting agents.",
+      "maxLength": 512
+    },
+    "modes": {
+      "type": "array",
+      "description": "AHP modes supported by this site. At least one must be declared.",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["MODE1", "MODE2", "MODE3"]
+      }
+    },
+    "endpoints": {
+      "type": "object",
+      "description": "URLs for AHP endpoints.",
+      "additionalProperties": false,
+      "properties": {
+        "converse": {
+          "type": "string",
+          "description": "Path or URL for the POST /agent/converse endpoint (MODE2/MODE3).",
+          "examples": ["/agent/converse"]
+        },
+        "content": {
+          "type": "string",
+          "description": "Path or URL for the primary MODE1 content document.",
+          "examples": ["/llms.txt"]
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "description": "Capabilities this site's concierge can perform. Required for MODE2/MODE3.",
+      "items": {
+        "$ref": "#/definitions/capability"
+      }
+    },
+    "authentication": {
+      "type": "string",
+      "description": "Authentication scheme required by this site.",
+      "enum": ["none", "bearer", "api_key", "signed_request"],
+      "default": "none"
+    },
+    "rate_limits": {
+      "type": "object",
+      "description": "Rate limit declarations for visiting agents.",
+      "additionalProperties": false,
+      "properties": {
+        "unauthenticated": {
+          "$ref": "#/definitions/rate_limit_tier"
+        },
+        "authenticated": {
+          "$ref": "#/definitions/rate_limit_tier"
+        }
+      }
+    },
+    "rate_limit": {
+      "type": "string",
+      "description": "Shorthand rate limit string (deprecated; prefer rate_limits object).",
+      "pattern": "^[0-9]+/(second|minute|hour|day)$"
+    },
+    "content_signals": {
+      "$ref": "#/definitions/content_signals"
+    },
+    "async": {
+      "type": "object",
+      "description": "Async capability declaration.",
+      "additionalProperties": false,
+      "properties": {
+        "supported": {
+          "type": "boolean",
+          "description": "Whether this site supports the async interaction model."
+        },
+        "max_eta_seconds": {
+          "type": "integer",
+          "description": "Maximum expected wait time in seconds for async responses.",
+          "minimum": 0
+        }
+      },
+      "required": ["supported"]
+    },
+    "links": {
+      "type": "object",
+      "description": "Additional URLs relevant to this site.",
+      "additionalProperties": {
+        "type": "string",
+        "format": "uri"
+      }
+    }
+  },
+  "definitions": {
+    "capability": {
+      "type": "object",
+      "description": "A named function the concierge can perform.",
+      "required": ["name", "description", "mode"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique identifier for this capability.",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "maxLength": 64
+        },
+        "description": {
+          "type": "string",
+          "description": "Human- and agent-readable description of what this capability does.",
+          "maxLength": 256
+        },
+        "mode": {
+          "type": "string",
+          "description": "The AHP mode this capability requires.",
+          "enum": ["MODE1", "MODE2", "MODE3"]
+        },
+        "action_type": {
+          "type": "string",
+          "description": "For MODE3 capabilities: whether this is a query, a side-effecting action, or an async action.",
+          "enum": ["query", "action", "async"]
+        },
+        "response_types": {
+          "type": "array",
+          "description": "Content types this capability can return, in preference order.",
+          "items": {
+            "type": "string",
+            "description": "A content type string from the AHP registry or an x- prefixed extension type.",
+            "pattern": "^(text|application|media|file|x-[a-z][a-z0-9-]*)/[a-z][a-z0-9_-]*$"
+          }
+        },
+        "accept_fallback": {
+          "type": "boolean",
+          "description": "If true, the concierge will fall back to text/answer when the visiting agent cannot handle the primary response type.",
+          "default": false
+        },
+        "input_schema": {
+          "type": "object",
+          "description": "JSON Schema describing structured input fields for this capability (MODE3)."
+        },
+        "output_schema": {
+          "type": "object",
+          "description": "JSON Schema describing the structured output for this capability (MODE3)."
+        }
+      }
+    },
+    "rate_limit_tier": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "type": "string",
+          "description": "Request rate limit in N/period format.",
+          "pattern": "^[0-9]+/(second|minute|hour|day)$",
+          "examples": ["30/minute"]
+        },
+        "token_budget": {
+          "type": "string",
+          "description": "Token budget per session.",
+          "pattern": "^[0-9]+/session$",
+          "examples": ["5000/session"]
+        }
+      }
+    },
+    "content_signals": {
+      "type": "object",
+      "description": "Declarations of how this site's content may be used by AI systems.",
+      "required": ["ai_input"],
+      "additionalProperties": false,
+      "properties": {
+        "ai_train": {
+          "type": "boolean",
+          "description": "May this content be used to train AI models?"
+        },
+        "ai_input": {
+          "type": "boolean",
+          "description": "May this content be used as input/context for AI inference?"
+        },
+        "search": {
+          "type": "boolean",
+          "description": "May this content be indexed for AI-powered search?"
+        },
+        "attribution_required": {
+          "type": "boolean",
+          "description": "Must the source be cited when this content is used?"
+        }
+      }
+    }
+  }
+}

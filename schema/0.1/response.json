@@ -1,0 +1,256 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agenthandshake.dev/schema/0.1/response.json",
+  "title": "AHP Conversational Endpoint Response",
+  "description": "Response from POST /agent/converse or GET /agent/converse/status/:session_id.",
+  "type": "object",
+  "required": ["status"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "description": "Response status.",
+      "enum": ["success", "clarification_needed", "accepted", "pending", "error"]
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/definitions/success_response" },
+    { "$ref": "#/definitions/clarification_response" },
+    { "$ref": "#/definitions/accepted_response" },
+    { "$ref": "#/definitions/pending_response" },
+    { "$ref": "#/definitions/error_response" }
+  ],
+  "definitions": {
+    "success_response": {
+      "type": "object",
+      "description": "A completed, successful response.",
+      "required": ["status", "response"],
+      "properties": {
+        "status": { "type": "string", "enum": ["success"] },
+        "session_id": {
+          "type": ["string", "null"],
+          "description": "Session identifier, if a session was established."
+        },
+        "response": {
+          "type": "object",
+          "description": "The response payload.",
+          "required": [],
+          "properties": {
+            "content_type": {
+              "type": "string",
+              "description": "The content type of the response payload.",
+              "default": "text/answer",
+              "pattern": "^(text|application|media|file|x-[a-z][a-z0-9-]*)/[a-z][a-z0-9_-]*$"
+            },
+            "answer": {
+              "type": "string",
+              "description": "Human- and LLM-readable summary or answer. SHOULD be present in all responses."
+            },
+            "payload": {
+              "type": "object",
+              "description": "Structured payload for non-text/answer content types. Schema depends on content_type — see Appendix C of the specification."
+            },
+            "sources": {
+              "type": "array",
+              "description": "Source pages or documents referenced in this response.",
+              "items": { "$ref": "#/definitions/source" }
+            },
+            "follow_up": {
+              "type": "object",
+              "description": "Optional follow-up guidance for the visiting agent.",
+              "properties": {
+                "suggested_queries": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Queries the visiting agent may want to ask next."
+                }
+              }
+            }
+          }
+        },
+        "meta": { "$ref": "#/definitions/response_meta" }
+      }
+    },
+    "clarification_response": {
+      "type": "object",
+      "description": "The concierge requires clarification before answering.",
+      "required": ["status", "session_id", "clarification"],
+      "properties": {
+        "status": { "type": "string", "enum": ["clarification_needed"] },
+        "session_id": {
+          "type": "string",
+          "description": "Session identifier. Must be included in the follow-up request."
+        },
+        "clarification": {
+          "type": "object",
+          "required": ["question"],
+          "properties": {
+            "question": {
+              "type": "string",
+              "description": "The clarifying question the concierge is asking."
+            },
+            "options": {
+              "type": ["array", "null"],
+              "description": "Optional list of valid responses. Null means free-form response is expected.",
+              "items": { "type": "string" }
+            },
+            "free_form": {
+              "type": "boolean",
+              "description": "If true, the visiting agent may respond with arbitrary text rather than selecting from options.",
+              "default": false
+            }
+          }
+        }
+      }
+    },
+    "accepted_response": {
+      "type": "object",
+      "description": "A MODE3 async request has been accepted and is being processed.",
+      "required": ["status", "session_id", "poll"],
+      "properties": {
+        "status": { "type": "string", "enum": ["accepted"] },
+        "session_id": {
+          "type": "string",
+          "description": "Session identifier for polling."
+        },
+        "eta_seconds": {
+          "type": ["integer", "null"],
+          "description": "Estimated seconds until the response is ready. Null if unknown.",
+          "minimum": 0
+        },
+        "poll": {
+          "type": "string",
+          "description": "URL to poll for status: GET /agent/converse/status/:session_id"
+        },
+        "callback": {
+          "type": "object",
+          "description": "Webhook details if a callback_url was provided in the request.",
+          "properties": {
+            "method": { "type": "string", "enum": ["POST"] },
+            "url": { "type": "string", "format": "uri" }
+          }
+        }
+      }
+    },
+    "pending_response": {
+      "type": "object",
+      "description": "Status response for a pending async request.",
+      "required": ["status", "session_id"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pending", "success", "failed", "expired"]
+        },
+        "session_id": { "type": "string" },
+        "progress": {
+          "type": "string",
+          "description": "Human-readable progress description.",
+          "examples": ["Waiting for human operator response", "Running external query"]
+        },
+        "eta_seconds": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "response": {
+          "description": "Present when status is success. Same shape as success_response.response.",
+          "$ref": "#/definitions/success_response/properties/response"
+        },
+        "meta": { "$ref": "#/definitions/response_meta" }
+      }
+    },
+    "error_response": {
+      "type": "object",
+      "description": "An error occurred processing the request.",
+      "required": ["status", "code", "message"],
+      "properties": {
+        "status": { "type": "string", "enum": ["error"] },
+        "code": {
+          "type": "string",
+          "description": "Machine-readable error code.",
+          "enum": [
+            "invalid_request",
+            "unknown_capability",
+            "missing_field",
+            "unsupported_type",
+            "auth_required",
+            "forbidden",
+            "request_too_large",
+            "rate_limited",
+            "concierge_error",
+            "unavailable"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable error description."
+        },
+        "available_capabilities": {
+          "type": "array",
+          "description": "Present on unknown_capability errors. Lists valid capability names.",
+          "items": { "type": "string" }
+        },
+        "available_types": {
+          "type": "array",
+          "description": "Present on unsupported_type errors. Lists content types the capability can return.",
+          "items": { "type": "string" }
+        },
+        "scope": {
+          "type": "string",
+          "description": "Present on rate_limited errors. Indicates the scope of the limit hit.",
+          "enum": ["ip", "agent", "session", "session_tokens"]
+        },
+        "retry_after": {
+          "type": ["integer", "null"],
+          "description": "Seconds until retry is permitted. Null means retry in a new session.",
+          "minimum": 0
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "description": "A source document referenced in the response.",
+      "required": ["url"],
+      "properties": {
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "relevance": {
+          "type": "string",
+          "enum": ["direct", "indirect", "background"]
+        }
+      }
+    },
+    "response_meta": {
+      "type": "object",
+      "description": "Metadata about how the response was generated.",
+      "properties": {
+        "tokens_used": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "LLM tokens consumed generating this response."
+        },
+        "capability_used": {
+          "type": "string",
+          "description": "The capability that handled this request."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["MODE1", "MODE2", "MODE3"]
+        },
+        "cached": {
+          "type": "boolean",
+          "description": "Whether this response was served from cache."
+        },
+        "content_type": {
+          "type": "string",
+          "description": "The content type of the response payload."
+        },
+        "fallback_from": {
+          "type": "string",
+          "description": "If the response was a fallback, the content type that would have been served."
+        },
+        "content_signals": {
+          "$ref": "manifest.json#/definitions/content_signals"
+        }
+      }
+    }
+  }
+}

@@ -778,9 +778,35 @@ Visiting Agent                          Site Concierge + Human
 
 ---
 
-## Appendix A: JSON Schema for the AHP Manifest
+## Appendix A: JSON Schemas
 
-*(To be published as a separate schema file at `https://agenthandshake.dev/schema/0.1/manifest.json`)*
+Machine-readable JSON Schema files for all AHP data structures are published alongside this specification. Implementations SHOULD validate against these schemas.
+
+| Schema | URL | Validates |
+|--------|-----|-----------|
+| Manifest | [`/schema/0.1/manifest.json`](https://agenthandshake.dev/schema/0.1/manifest.json) | `/.well-known/agent.json` |
+| Request | [`/schema/0.1/request.json`](https://agenthandshake.dev/schema/0.1/request.json) | `POST /agent/converse` body |
+| Response | [`/schema/0.1/response.json`](https://agenthandshake.dev/schema/0.1/response.json) | `POST /agent/converse` response |
+
+All schemas use JSON Schema draft-07 and are versioned alongside the specification. The schema `$id` URIs are stable and will not change for a given version.
+
+**Validating a manifest:**
+
+```bash
+# Using ajv-cli
+npx ajv validate -s https://agenthandshake.dev/schema/0.1/manifest.json \
+  -d .well-known/agent.json
+
+# Using Python jsonschema
+pip install jsonschema requests
+python3 -c "
+import jsonschema, json, requests
+schema = requests.get('https://agenthandshake.dev/schema/0.1/manifest.json').json()
+manifest = json.load(open('.well-known/agent.json'))
+jsonschema.validate(manifest, schema)
+print('Valid')
+"
+```
 
 ---
 

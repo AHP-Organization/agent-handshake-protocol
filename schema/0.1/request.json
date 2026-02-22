@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agenthandshake.dev/schema/0.1/request.json",
+  "title": "AHP Conversational Endpoint Request",
+  "description": "Request body for POST /agent/converse.",
+  "type": "object",
+  "required": ["capability", "query"],
+  "additionalProperties": false,
+  "properties": {
+    "ahp": {
+      "type": "string",
+      "description": "AHP protocol version. SHOULD be present for compatibility checking.",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "examples": ["0.1"]
+    },
+    "capability": {
+      "type": "string",
+      "description": "The name of the capability to invoke. Must match a capability declared in the site's manifest.",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "maxLength": 64
+    },
+    "query": {
+      "type": "string",
+      "description": "The question or request to the concierge.",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "session_id": {
+      "type": ["string", "null"],
+      "description": "Session identifier for multi-turn exchanges. Null or absent for a new session.",
+      "maxLength": 128
+    },
+    "clarification": {
+      "type": ["string", "null"],
+      "description": "Response to a clarification_needed response. Must be submitted with the same session_id.",
+      "maxLength": 1024
+    },
+    "context": {
+      "type": "object",
+      "description": "Additional context about the visiting agent and the request.",
+      "additionalProperties": false,
+      "properties": {
+        "requesting_agent": {
+          "type": "string",
+          "description": "Identifier for the visiting agent. Unverified — for logging and routing only.",
+          "maxLength": 128,
+          "examples": ["my-research-bot/1.0", "ChatGPT"]
+        },
+        "user_intent": {
+          "type": "string",
+          "description": "High-level intent of the end user or agent task.",
+          "maxLength": 256,
+          "examples": ["research", "booking", "support"]
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Hint to the concierge: preferred maximum response length in tokens. Not a hard limit.",
+          "minimum": 1,
+          "maximum": 32768
+        },
+        "accept_types": {
+          "type": "array",
+          "description": "Content types the visiting agent can handle, in preference order. If absent, the concierge defaults to text/answer.",
+          "items": {
+            "type": "string",
+            "pattern": "^(text|application|media|file|x-[a-z][a-z0-9-]*)/[a-z][a-z0-9_-]*$"
+          },
+          "examples": [
+            ["media/video", "text/answer"],
+            ["application/feed", "text/answer"]
+          ]
+        },
+        "callback_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Webhook URL for async MODE3 responses. The concierge will POST the final response here when ready."
+        },
+        "locale": {
+          "type": "string",
+          "description": "BCP 47 language tag indicating the visiting agent's preferred response language.",
+          "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$",
+          "examples": ["en", "en-US", "fr-CA"]
+        }
+      }
+    }
+  }
+}
