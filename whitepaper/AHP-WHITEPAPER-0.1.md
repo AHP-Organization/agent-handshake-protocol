@@ -9,34 +9,64 @@
 
 ## Abstract
 
-Current approaches to AI agent interaction with websites are fundamentally misaligned: agents receive entire documents when they need specific answers, parse HTML designed for human browsers, and have no standardised way to discover what a site can do on their behalf. We present the **Agent Handshake Protocol (AHP)**, an open specification defining structured discovery, conversational interaction, and agentic delegation between visiting AI agents and website-side concierge systems.
+AI agents are becoming primary actors on the web — not visitors browsing for humans, but autonomous systems completing tasks, making decisions, and acting on behalf of users. The web has no standard for this. Agents scrape HTML built for browsers, parse documents built for humans, and interact with sites that have no idea they're being visited by a machine. Sites have no way to declare what they can do for an agent. Agents have no way to discover what a site can offer. There is no handshake.
 
-Through a reference implementation tested against two sites — the AHP Specification Site and the Nate Jones AI-practitioner blog — we demonstrate that AHP MODE2 reduces token consumption by **75–80% vs. a naive visiting agent (no retrieval)** (AHP site: 77.4% average; Nate site: 71.7% average; 3-run mean ± stddev with cache-busting; RAG baseline API-measured). We report a full RAG-baseline comparison — a visiting agent implementing client-side chunking and keyword-retrieval over the same `llms.txt` content — which is the fairer competitive benchmark: the RAG baseline uses 292–938 tokens per query (AHP site) and 436–631 tokens per query (Nate site), while AHP MODE2 uses 1,990–2,417 and 2,262–2,662 respectively. **AHP MODE2 uses approximately 3–8× more tokens per query than a well-implemented RAG visiting agent on compact corpora.** AHP's advantages over RAG are protocol-level: structured discovery, capability declaration, server-managed caching (~10ms p50 cache-hit latency), session management, content signals, and MODE3 capabilities. The reference deployment passes **23 of 24 conformance checks** in the v5.4 test suite: T17 (MODE3 auth enforcement) is the single failure — a known security defect in the demo configuration that any production deployment must fix. T21 is advisory (§6.3 MAY — live server never triggers clarification). T21b (new: mock-parser format test) confirms the `clarification_needed` format spec is correctly validated. All other 21 tests pass conclusively. AHP is designed for progressive adoption: a site can become MODE1-compliant in under five minutes (structural elements only; content quality is a separate investment), and each subsequent mode is backwards compatible. Cache-hit latency averages **10ms p50**; cold-cache latency averages **3,806ms p50** (LLM inference; see §4.3).
+We present the **Agent Handshake Protocol (AHP)**: a three-mode open specification that gives agents and websites a shared vocabulary. A site publishes a machine-readable manifest declaring its capabilities — what it can answer, what actions it can take, what constraints apply. Visiting agents discover the manifest and interact through a defined protocol rather than scraping. The result is a fundamentally different relationship: not agent-extracts-from-site, but agent-and-site-collaborate.
+
+The capability progression is the core contribution. **MODE1** makes a site discoverable and legible to any agent in under five minutes. **MODE2** enables a visiting agent to ask a question and receive a precise, sourced answer — the site's concierge does the retrieval work so the agent doesn't have to. **MODE3** makes the site an active participant: the concierge can query live databases, execute calculations with current pricing, and escalate to human experts — capabilities no document-serving approach can provide regardless of how it is queried.
+
+To validate the protocol, we built a reference implementation and tested it against two independent sites. Token efficiency results (MODE2 reduces consumption by 71–78% vs. a naive visiting agent; a well-implemented client-side RAG agent narrows this to a 3–8× overhead, with AHP's advantages being protocol-level rather than retrieval-level) and latency data (10ms p50 cached; 3,806ms p50 cold) are reported in full. The reference deployment passes **23 of 24 conformance checks** in the v5.4 test suite (T17 is a known security defect in the demo configuration). AHP is designed for progressive adoption: each mode is backwards compatible, and MODE1 compliance is achievable as a five-minute addition to any existing site.
 
 ---
 
 ## 1. Introduction
 
-The web was designed for humans navigating with browsers. AI agents — autonomous systems that traverse the web as part of larger tasks — are increasingly being asked to use it too. The results are predictable: agents scrape HTML, attempt to parse layouts designed for visual rendering, and consume thousands of tokens on boilerplate before reaching the content they need.
+Consider what an AI agent has to do today to interact with a website it has never seen before.
 
-Several partial solutions have emerged. Cloudflare's "Markdown for Agents" [CLOUDFLARE] converts pages to clean markdown on request. The `llms.txt` convention [LLMSTXT] provides a site-level content document in plain text. These approaches share a fundamental limitation: they are monologues. A document is thrown over a fence, and the agent must parse it entirely regardless of its actual query. There is no negotiation, no capability declaration, no stateful interaction.
+It fetches the page. It receives HTML — navigation bars, footers, cookie banners, sidebars, markup — built entirely for a human rendering engine. It extracts what it can from the noise. If it needs to know whether a product is in stock, it searches a page that was designed to show a human a price and an "Add to Cart" button. If it needs to understand what a company does, it reads marketing copy written to persuade humans, not inform machines. If it needs to take an action — place an order, book an appointment, escalate an issue — it either calls an undocumented API it somehow discovered or gives up.
 
-This is the equivalent of responding to every question with the full contents of a library. It works, but poorly. A more sophisticated visiting agent can implement client-side chunking and retrieval (RAG) over the same document, narrowing the gap — but it does so by replicating server-side retrieval logic that AHP makes available as a protocol primitive.
+This is the current state of the art. The web is used by hundreds of millions of AI agent calls per day, and the interaction model is: scrape what you can and hope for the best.
 
-We ask a different question: **what if a website could talk back?**
+Several partial solutions exist. Cloudflare's "Markdown for Agents" [CLOUDFLARE] strips HTML and serves clean markdown. The `llms.txt` convention [LLMSTXT] offers a site-level plain text document. These are improvements, but they share the same fundamental model: the site throws a document over a fence, and the agent must extract meaning from it entirely on its own. The site plays no active role. There is no negotiation. The site does not know what the agent needs, and the agent has no way to ask.
 
-AHP defines a protocol for exactly this. A site publishes a machine-readable manifest declaring its capabilities. Visiting agents discover the manifest, understand what the site can offer, and submit targeted queries — receiving precise, sourced answers rather than full documents. For sites with richer requirements, AHP's MODE3 enables the site-side concierge to use tools, call APIs, and escalate to human operators on behalf of the visiting agent.
+**The problem is not formatting. It is the absence of a shared vocabulary.**
 
-The implications extend beyond efficiency. As AI agents become the primary interface through which many users interact with the web, a site's AHP compliance affects whether those agents can find it, understand it, and act on its behalf. AHP is designed as an infrastructure layer for agent-native web presence — we hypothesise that it may serve an analogous function to SEO in the browser-web era, though validating this claim requires adoption-scale data not yet available.
+When two humans do business, there is a handshake. A declaration of intent. An exchange of capability and constraint. *Here is what I can offer. Here is what I need. Here is what I will and will not do with what you give me.* The web has this vocabulary for humans — product listings, checkout flows, contact forms, terms of service. It has no equivalent for agents.
 
-### 1.1 Contributions
+AHP defines that vocabulary.
+
+### 1.1 What AHP Makes Possible
+
+Before describing the protocol, it is worth being explicit about what it enables — because the value is not primarily efficiency.
+
+**Sites become participants.** Today a site is a passive resource that agents extract from. With MODE3, a site becomes an active party: its concierge can check live inventory, calculate a quote with current pricing, look up an order, and escalate to a human expert — all within a single agent conversation, without the visiting agent having access to any of those systems directly. The visiting agent describes what it needs; the site does the work. This is delegation, not retrieval, and it has no equivalent in any document-serving model.
+
+**Any agent works with any site, zero custom integration.** An AHP-aware agent discovering a new site fetches the manifest, reads the capability declarations, and starts working — without that agent having been specifically coded for that site. This is the web's original interoperability promise applied to agents: a universal protocol that any site can implement and any agent can speak. Today this doesn't exist. Every agent-to-site integration is either hardcoded or a scraping hack.
+
+**Sites control the terms of agent interaction.** AHP's content signals travel with every response: `ai_train`, `ai_input`, `search`, `attribution_required`. A site can declare its AI usage policy in a machine-readable, per-response format more precise than `robots.txt` and more persistent than a page-level meta tag. For the first time, a site's preferences have a standard channel to reach the agents consuming it.
+
+**The web gains a discovery layer for the agent era.** AHP's three discovery mechanisms ensure that an agent encountering any AHP-compliant site — whether it arrives via HTTP client, headless browser, or as a result of a human passing a URL — can find and use the protocol. Discovery is a solved problem in the browser web (DNS, HTML, hyperlinks). For agents it is currently not solved at all.
+
+### 1.2 Protocol Overview
+
+AHP achieves this through three progressive modes, each building on the previous:
+
+- **MODE1 (Static Serve)**: the site publishes a manifest and provides agent-readable content. A site with an existing `llms.txt` document becomes MODE1-compliant in under five minutes. Agents can discover the site's capabilities and retrieve content without any server-side logic.
+
+- **MODE2 (Interactive Knowledge)**: the site runs a concierge that accepts natural language queries and returns precise, sourced answers. The agent asks for what it needs; the site retrieves only what is relevant. Session management, content signals, and schema-validated responses are protocol primitives — the visiting agent gets them for free.
+
+- **MODE3 (Agentic Desk)**: the concierge is equipped with tools — live data access, calculation engines, external APIs, MCP server connections, and a human escalation queue. The visiting agent can delegate tasks that require real-time data, computation, or human judgment. Each tool call is orchestrated by the site's concierge, with the visiting agent receiving a natural language result.
+
+Each mode is backwards compatible: a MODE3 site is automatically MODE1 and MODE2 compliant. A MODE1 site can be upgraded incrementally.
+
+### 1.3 Contributions
 
 This paper presents:
 
-1. **The AHP specification** — a three-mode protocol covering discovery, conversational interaction, and agentic delegation
+1. **The AHP specification** — a three-mode protocol with three discovery mechanisms, conversational interaction, agentic delegation, session management, content signals, and async human escalation
 2. **A reference implementation** — a complete open-source MODE1/MODE2/MODE3 server deployable on any Node.js host
-3. **Empirical evaluation** — conformance testing and token efficiency benchmarks against a reference deployment (reference implementation only; no third-party implementations tested in this version)
-4. **A test suite** — an open-source visiting agent harness (v5.4: RAG-baseline comparison, cache-busted multi-run averaging, automatic outlier detection, cross-site comparison, 24 conformance tests T01–T23 + T21b including session memory, rate-limit headers, §6.3 format parser, and invalid session handling)
+3. **Empirical evaluation** — conformance testing, token efficiency benchmarks, and latency profiling across two independent sites (reference implementation only; no third-party implementations tested in this version)
+4. **A test suite** — an open-source visiting agent harness (v5.4, 24 conformance tests including RAG-baseline comparison, cache-busted multi-run averaging, automatic outlier detection, cross-site comparison, session memory, rate-limit headers, and §6.3 format validation)
 
 ---
 
