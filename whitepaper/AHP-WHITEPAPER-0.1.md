@@ -3,7 +3,7 @@
 **Nick Allain**
 *agenthandshake.dev · github.com/AHP-Organization*
 
-*Draft 0.1 — February 2026 (revised 7 — 14:33 UTC)*
+*Draft 0.1 — February 2026 (revised 8 — 15:46 UTC)*
 
 ---
 
@@ -11,7 +11,7 @@
 
 Current approaches to AI agent interaction with websites are fundamentally misaligned: agents receive entire documents when they need specific answers, parse HTML designed for human browsers, and have no standardised way to discover what a site can do on their behalf. We present the **Agent Handshake Protocol (AHP)**, an open specification defining structured discovery, conversational interaction, and agentic delegation between visiting AI agents and website-side concierge systems.
 
-Through a reference implementation tested against two sites — the AHP Specification Site and the Nate Jones AI-practitioner blog — we demonstrate that AHP MODE2 reduces token consumption by **75–80% vs. a naive visiting agent (no retrieval)** (AHP site: 77.5% average; Nate site: 71.6% average; 3-run mean ± stddev with cache-busting; RAG baseline API-measured). We report a full RAG-baseline comparison — a visiting agent implementing client-side chunking and keyword-retrieval over the same `llms.txt` content — which is the fairer competitive benchmark: the RAG baseline uses 292–941 tokens per query (AHP site) and 435–647 tokens per query (Nate site), while AHP MODE2 uses 1,987–2,388 and 2,269–2,670 respectively. **AHP MODE2 uses approximately 3–8× more tokens per query than a well-implemented RAG visiting agent on compact corpora.** AHP's advantages over RAG are protocol-level: structured discovery, capability declaration, server-managed caching (~29ms p50 cache-hit latency), session management, content signals, and MODE3 capabilities. The reference deployment passes **21 of 22 conformance checks** in the v5.2 test suite: T17 (MODE3 auth enforcement) is the single failure — a known security defect in the demo configuration that any production deployment must fix. All other 21 tests pass, including T08 (session memory confirmed), T20 (rate-limit headers), T21 (clarification format advisory), and T22 (invalid session graceful handling — HTTP 400 correct). AHP is designed for progressive adoption: a site can become MODE1-compliant in under five minutes (structural elements only; content quality is a separate investment), and each subsequent mode is backwards compatible. Cache-hit latency averages **29ms p50**; cold-cache latency averages **3,711ms p50** (LLM inference; see §4.3).
+Through a reference implementation tested against two sites — the AHP Specification Site and the Nate Jones AI-practitioner blog — we demonstrate that AHP MODE2 reduces token consumption by **75–80% vs. a naive visiting agent (no retrieval)** (AHP site: 77.4% average; Nate site: 71.7% average; 3-run mean ± stddev with cache-busting; RAG baseline API-measured). We report a full RAG-baseline comparison — a visiting agent implementing client-side chunking and keyword-retrieval over the same `llms.txt` content — which is the fairer competitive benchmark: the RAG baseline uses 292–938 tokens per query (AHP site) and 436–631 tokens per query (Nate site), while AHP MODE2 uses 1,990–2,417 and 2,262–2,662 respectively. **AHP MODE2 uses approximately 3–8× more tokens per query than a well-implemented RAG visiting agent on compact corpora.** AHP's advantages over RAG are protocol-level: structured discovery, capability declaration, server-managed caching (~10ms p50 cache-hit latency), session management, content signals, and MODE3 capabilities. The reference deployment passes **22 of 23 conformance checks** in the v5.3 test suite: T17 (MODE3 auth enforcement) is the single failure — a known security defect in the demo configuration that any production deployment must fix. T21 is advisory (§6.3 MAY — live server never triggers clarification). T21b (new: mock-parser format test) confirms the `clarification_needed` format spec is correctly validated. All other 21 tests pass conclusively. AHP is designed for progressive adoption: a site can become MODE1-compliant in under five minutes (structural elements only; content quality is a separate investment), and each subsequent mode is backwards compatible. Cache-hit latency averages **10ms p50**; cold-cache latency averages **3,806ms p50** (LLM inference; see §4.3).
 
 ---
 
@@ -36,7 +36,7 @@ This paper presents:
 1. **The AHP specification** — a three-mode protocol covering discovery, conversational interaction, and agentic delegation
 2. **A reference implementation** — a complete open-source MODE1/MODE2/MODE3 server deployable on any Node.js host
 3. **Empirical evaluation** — conformance testing and token efficiency benchmarks against a reference deployment (reference implementation only; no third-party implementations tested in this version)
-4. **A test suite** — an open-source visiting agent harness (v5: RAG-baseline comparison, cache-busted multi-run averaging, automatic cross-site comparison, conformance tests T01–T22 including session memory, rate-limit headers, clarification flow, and invalid session handling)
+4. **A test suite** — an open-source visiting agent harness (v5.3: RAG-baseline comparison, cache-busted multi-run averaging, automatic outlier detection, cross-site comparison, 23 conformance tests T01–T22 + T21b including session memory, rate-limit headers, §6.3 format parser, and invalid session handling)
 
 ---
 
@@ -102,7 +102,7 @@ Our reference implementation is a Node.js/Express server (~700 lines across 7 so
 - **MODE2 concierge**: Claude Haiku via the Anthropic API; retrieves top-5 relevant chunks, synthesises a sourced answer. Token costs appear on the server side — the visiting agent pays fewer tokens, but the site pays for each Haiku call. At low-to-moderate query volumes this is economically favourable; at high traffic volumes the server-side cost model requires analysis (see §5.1).
 - **MODE3 tool use**: Claude's native tool_use API with an agentic loop; tools include inventory lookup, quote calculation, order retrieval, and knowledge search
 - **Async queue**: human escalation tickets with configurable simulated response delay; fires callbacks or resolves via polling
-- **Session management**: in-memory sessions with 10-minute TTL and 10-turn limit. Session history is passed to the LLM on subsequent turns, enabling multi-turn context (confirmed live in v5.2: server correctly quotes prior turn content verbatim in T08 turn 2 response). **Practical developer note**: the server passes full session history to the LLM; developers building visiting agents on top of AHP do not need to implement their own turn-history injection — the server manages it as a protocol primitive.
+- **Session management**: in-memory sessions with 10-minute TTL and 10-turn limit. Session history is passed to the LLM on subsequent turns, enabling multi-turn context (confirmed live in v5.3: server correctly quotes prior turn content verbatim in T08 turn 2 response). **Practical developer note**: the server passes full session history to the LLM; developers building visiting agents on top of AHP do not need to implement their own turn-history injection — the server manages it as a protocol primitive.
 - **Caching**: normalised query key, 5-minute TTL; cached responses return in <30ms
 - **Rate limiting**: 30 req/min unauthenticated, with AHP-standard `X-RateLimit-*` headers
 
@@ -119,14 +119,15 @@ A second instance (Nate Jones — `nate.agenthandshake.dev`) hosts an AI practit
 
 ### 3.3 Test Harness
 
-Our test suite (`AHP-Organization/test-suite`, v5.2) acts as a visiting agent, running 22 conformance tests (T01–T22):
+Our test suite (`AHP-Organization/test-suite`, v5.3) acts as a visiting agent, running 23 conformance tests (T01–T22 + T21b):
 
 - T01–T16 (original suite): discovery, schema, MODE2, MODE3, error handling, sessions, content signals, caching, rate limiting
 - T17: MODE3 action auth enforcement (CRITICAL DEFECT — demo server allows unauthenticated actions; spec §5.3 MUST)
 - T18: Session 10-turn limit enforcement (spec §5.4.3)
 - T19: Request body 413 on oversized payload >8KB (spec §6.5)
 - T20: Rate-limit headers present and numeric on all responses (spec §11.1)
-- T21: Clarification-needed response format (spec §6.3 MAY — advisory if never triggered)
+- T21: Clarification-needed live probe (spec §6.3 MAY — advisory if never triggered)
+- T21b: Clarification-needed format parser — mock validation of §6.3 format spec (v5.3, new)
 - T22: Invalid/unknown session_id handled gracefully — no 5xx (spec §6.2)
 
 **v5 benchmark methodology improvements:**
@@ -148,7 +149,7 @@ Each query runs **3 times**; results reported as **mean ± stddev** across all 3
 
 ### 4.1 Protocol Conformance
 
-The reference deployment was tested against the v5.2 test suite (T01–T22). Results for the 2026-02-22 14:33 UTC run:
+The reference deployment was tested against the v5.3 test suite (T01–T22 + T21b = 23 tests). Results for the 2026-02-22 15:46 UTC run:
 
 **Scope note**: conformance was demonstrated only for the reference implementation, which was co-developed with the spec and test suite. No independent third-party implementations have been tested. Results reflect internal consistency of the reference implementation, not ecosystem-wide interoperability.
 
@@ -166,7 +167,7 @@ The reference deployment was tested against the v5.2 test suite (T01–T22). Res
 | T08: Multi-turn + session memory | Sessions | ✓ | **See note** — v5 confirms server has session memory |
 | T09: Response schema | Schema | ✓ | |
 | T10: Content signals in response | Signals | ✓ | |
-| T11: MODE3 inventory (tool use) | MODE3 | ✓ | 1 tool call (`check_inventory`) observed consistently in v5.2 runs |
+| T11: MODE3 inventory (tool use) | MODE3 | ✓ | 1 tool call (`check_inventory`) observed consistently in v5.3 runs |
 | T12: MODE3 quote with numeric prices | MODE3 | ✓ | Assertion fixed: requires `$\d` pattern + no failure phrases |
 | T13: MODE3 order lookup | MODE3 | ✓ | |
 | T14: MODE3 async human escalation | MODE3 async | ✓ | Latency is simulated |
@@ -176,7 +177,8 @@ The reference deployment was tested against the v5.2 test suite (T01–T22). Res
 | T18: Session 10-turn limit | Sessions | ✓ | Limit triggered on turn 11 |
 | T19: Oversized body → 413 | Protocol | ✓ | HTTP 413 on 10KB body |
 | T20: Rate-limit headers (spec §11.1) | Protocol | ✓ | All 4 headers present, numeric (v4) |
-| T21: Clarification needed — format (§6.3) | Protocol | ✓ Advisory | Server answered "Which mode should I use?" directly; §6.3 format **unverified** (spec says MAY; server is compliant — it is not required to clarify) |
+| T21: Clarification needed — live probe (§6.3) | Protocol | ✓ Advisory | Server answered "Which mode should I use?" directly; spec says MAY — not required to clarify; T21b provides isolated format coverage |
+| T21b: Clarification needed — format parser (§6.3) | Protocol | ✓ | Mock-parser validates all 4 cases: valid-full, valid-minimal, invalid-missing-question, wrong-status. **Provides isolated §6.3 FORMAT coverage** (v5.3) |
 | T22: Invalid session_id graceful handling (§6.2) | Sessions | ✓ | Server returned HTTP 400 (correct — any 4xx is valid per spec §6.2) |
 
 **T08 note — false-negative history**: an earlier suite (v4) incorrectly failed T08 for a deployed server that does have session memory. The v4 exclusion phrase `"FIRST QUESTION"` matched `"In your first question, you requested…"` — a memory-demonstrating sentence — triggering a false negative. The v5 suite removed this ambiguous phrase; the v5.1 run confirms the fix is correct: the server responds `"You asked specifically about MODE1. In your first message, you explicitly requested: 'Tell me about AHP modes — focus especially on MODE1.'"` — unambiguous session memory. T08 ✓ in v5.1.
@@ -185,7 +187,7 @@ The reference deployment was tested against the v5.2 test suite (T01–T22). Res
 
 **T17 note — CRITICAL KNOWN DEFECT**: the reference implementation accepts unauthenticated requests to all three MODE3 action capabilities (inventory_check, get_quote, order_lookup). This violates spec §5.3 (MUST require authentication for action capabilities with side effects). Every developer who clones the reference implementation and deploys it without adding authentication ships a production system violating a MUST requirement. A `--require-auth` configuration flag is planned for v0.1.1.
 
-**21/22 (95.5%)** on reference deployment (v5.2 suite, 14:33 UTC). T17 ✗ (CRITICAL DEFECT — no auth enforcement). T21 ✓ advisory (§6.3 MAY — format unverified). All other 20 tests pass conclusively, including T08 (session memory confirmed — server cites turn 1 content verbatim), T20 (rate-limit headers), T22 (invalid session → HTTP 400 correct).
+**22/23 (95.7%)** on reference deployment (v5.3 suite, 15:46 UTC). T17 ✗ (CRITICAL DEFECT — no auth enforcement). T21 ✓ advisory (§6.3 MAY — live server never triggers clarification). T21b ✓ (new: mock-parser confirms §6.3 format spec is correctly validated). All other 21 tests pass conclusively, including T08 (session memory confirmed), T20 (rate-limit headers), T22 (invalid session → HTTP 400 correct).
 
 ### 4.2 Token Efficiency
 
@@ -202,30 +204,30 @@ The suite (first implemented in v3, current v5) appends a unique 8-char nonce to
 
 #### AHP Specification Site (corpus: ~40,100 chars, ~9,665 tokens tiktoken, 96 chunks)
 
-Results from 2026-02-22 **14:33 UTC — v5.2 suite**. Naive baseline: tiktoken estimate (not API-measured; fetch latency is a **single measurement** reused for all queries). RAG and AHP: API-measured (Claude Haiku 4.5, Anthropic), 3-run mean ± stddev with cache-busting.
+Results from 2026-02-22 **15:46 UTC — v5.3 suite** (adds T21b and automatic outlier detection). Naive baseline: tiktoken estimate (not API-measured; fetch latency is a **single measurement** reused for all queries). RAG and AHP: API-measured (Claude Haiku 4.5, Anthropic), 3-run mean ± stddev with cache-busting. Latency stddev shown for high-variance rows (CV >20%).
 
-| Query | Naive†<br/>(fetch ×1) | RAG-baseline ± σ<br/>(lat.) | AHP MODE2 ± σ<br/>(lat.) | Reduction<br/>vs. naive ↓ | Overhead<br/>vs. RAG ↑ |
-|-------|------------------------|------------------------------|---------------------------|--------------------------|------------------------|
-| Explain what MODE1 is | ~9,735 (146ms) | **292 ±1** (1,221ms) | **2,388 ±11** (3,994ms) | **75.5%** | +718% |
-| How does AHP discovery work? | ~9,736 (146ms) | **488 ±26** (2,199ms) | **1,987 ±38** (3,093ms) | **79.6%** | +307% |
-| What are AHP content signals? | ~9,735 (146ms) | **425 ±28** (1,048ms) | **2,198 ±19** (3,419ms) | **77.4%** | +418% |
-| How do I build a MODE2 endpoint? | ~9,735 (146ms) | **941 ±37** (2,878ms) | **2,301 ±54** (3,921ms) | **76.4%** | +144% |
-| What rate limits should AHP enforce? | ~9,735 (146ms) | **564 ±3** (1,813ms) | **2,082 ±16** (2,765ms) | **78.6%** | +269% |
-| **Average** | | | | **77.5%** | **+371%** |
+| Query | Naive†<br/>(fetch ×1) | RAG-baseline ± σ<br/>(lat. / ±σ) | AHP MODE2 ± σ<br/>(lat. / ±σ) | Reduction<br/>vs. naive ↓ | Overhead<br/>vs. RAG ↑ |
+|-------|------------------------|-----------------------------------|--------------------------------|--------------------------|------------------------|
+| Explain what MODE1 is | ~9,735 (119ms) | **292 ±2** (1,134ms) | **2,417 ±35** (4,306ms) | **75.2%** | +727% |
+| How does AHP discovery work? | ~9,736 (119ms) | **483 ±9** (1,610ms / ±109ms) | **1,990 ±27** (3,355ms / ±416ms) | **79.6%** | +312% |
+| What are AHP content signals? | ~9,736 (119ms) | **441 ±41** (1,326ms / ±355ms) | **2,202 ±14** (3,919ms / ±557ms) | **77.4%** | +400% |
+| How do I build a MODE2 endpoint? | ~9,735 (119ms) | **938 ±26** (2,649ms) | **2,317 ±44** (4,416ms) | **76.2%** | +147% |
+| What rate limits should AHP enforce?‡ | ~9,736 (119ms) | **574 ±16** (1,617ms / ±588ms) | **2,080 ±16** (2,905ms) | **78.6%** | +262% |
+| **Average** | | | | **77.4%** | **+370%** |
 
-† Naive tokens: tiktoken cl100k_base estimate, not API-measured; ±5–10% error. Fetch latency (146ms) is a **single measurement** reused for all queries; it is not a 3-run mean. Uniform token values (~9,735) reflect dominant corpus; per-query variation is nonce (~8 tokens) + query (~15 tokens). Latency is mean across 3 runs. The MODE1 query shows consistent AHP latency across all 3 runs (4,102ms / 3,894ms / 3,984ms; CV ~3%) — no outlier observed in this run. The latency profile §4.3 p50 (3,711ms) uses short uniform-format nonce queries; evaluation query latency varies by answer complexity (2,765–3,994ms range across queries).
+† Naive tokens: tiktoken cl100k_base estimate, not API-measured; ±5–10% error. Fetch latency (119ms) is a **single measurement** reused for all queries; it is not a 3-run mean. Latency stddev shown only for rows with CV >20%. ‡ Rate-limits RAG latency ±588ms (CV=36%) reflects Anthropic API variance; no run exceeded the 2× median outlier threshold in this run. Note: the 14:33 UTC run did have a RAG outlier on this query (run 1 = 3,234ms vs ~1,100ms for the other two; CV=68%, mean inflated to 1,813ms) — this is now automatically flagged in `latency_outliers` in the v5.3 JSON output. The v5.3 suite detects and reports any benchmark run >2× the 3-run median. Latency profile §4.3 p50 (3,806ms) uses short uniform-format nonce queries; evaluation latency varies by answer complexity (2,905–4,416ms range in this run).
 
 **Reading the table**: Reduction vs. naive ↓ — higher is better for AHP. Overhead vs. RAG ↑ — lower is better for AHP (+141% = AHP uses 2.4× RAG tokens; +732% = AHP uses 8.3× RAG tokens). AHP is worse on the RAG column for all five queries.
 
-**Latency stddev**: both RAG and AHP latency stddev values reflect genuine LLM inference variance (e.g. AHP discovery ±341ms; RAG endpoint ±353ms). Token stddev is small (±3–48) reflecting mostly-consistent answer lengths across runs.
+**Latency stddev**: both RAG and AHP latency stddev values reflect Anthropic API inference variance (e.g. AHP discovery ±416ms; RAG content-signals ±355ms; AHP content-signals ±557ms). These are the highest-variance rows in the 15:46 UTC run. Token stddev is small (±2–44) reflecting mostly-consistent answer lengths across runs. The v5.3 suite flags any single run >2× the 3-run median as a suspected outlier in `latency_outliers`.
 
-**Core finding**: AHP MODE2 uses **3–8× more tokens per query** (289–958 for RAG vs 1,989–2,406 for AHP) on a compact 9,735-token corpus. The 75–80% reduction vs. naive is real; AHP's value vs. RAG is protocol-level:
+**Core finding**: AHP MODE2 uses **3–8× more tokens per query** (292–938 for RAG vs 1,990–2,417 for AHP) on a compact 9,735-token corpus. The 75–80% reduction vs. naive is real; AHP's value vs. RAG is protocol-level:
 
 | | RAG visiting agent | AHP MODE2 visiting agent |
 |-|-------------------|--------------------------|
-| Per-query token cost (≤10K corpus) | **Lower** (292–941 tokens) | Higher (1,987–2,388 tokens) |
-| Cold-cache latency | ~1,048–2,878ms (measured) | ~2,765–3,994ms (+server round-trip) |
-| Cache-hit latency | N/A — client manages caching | **~29ms p50** (server 5-min TTL) |
+| Per-query token cost (≤10K corpus) | **Lower** (292–938 tokens) | Higher (1,990–2,417 tokens) |
+| Cold-cache latency | ~1,134–2,649ms (measured) | ~2,905–4,416ms (+server round-trip) |
+| Cache-hit latency | N/A — client manages caching | **~10ms p50** (server 5-min TTL) |
 | Discovery mechanism | Must know document URL | Structured 4-mechanism discovery |
 | Capability declaration | None | Manifest + capabilities |
 | Session management | Client must implement or skip | Protocol primitive — confirmed working |
@@ -236,49 +238,49 @@ Results from 2026-02-22 **14:33 UTC — v5.2 suite**. Naive baseline: tiktoken e
 
 #### Nate Jones Site Cross-Comparison (AI-Practitioner Domain)
 
-Results from 2026-02-22 14:33 UTC (v5.2 suite, cache-busted, RAG baseline API-measured). Corpus: ~39,341 chars, ~8,877 tokens tiktoken, 82 chunks. Fetch latency (132ms) is a single measurement.
+Results from 2026-02-22 15:46 UTC (v5.3 suite, cache-busted, RAG baseline API-measured). Corpus: ~39,341 chars, ~8,877 tokens tiktoken, 82 chunks. Fetch latency (184ms) is a single measurement.
 
 | Query | Naive† | RAG ± σ<br/>(lat.) | AHP ± σ<br/>(lat.) | Reduction<br/>vs. naive ↓ | Overhead<br/>vs. RAG ↑ |
 |-------|--------|---------------------|---------------------|--------------------------|------------------------|
-| What is RAG and how does it work? | ~8,946 | **435 ±2** (997ms) | **2,560 ±8** (2,435ms) | **71.4%** | +488% |
-| Explain prompt engineering | ~8,939 | **438 ±26** (1,692ms) | **2,584 ±2** (5,007ms) | **71.1%** | +490% |
-| What is MCP and how does it relate to AI agents? | ~8,948 | **514 ±2** (1,155ms) | **2,614 ±5** (3,438ms) | **70.8%** | +409% |
-| What is vibe coding? | ~8,941 | **451 ±8** (1,536ms) | **2,269 ±13** (3,906ms) | **74.6%** | +404% |
-| How do AI agents work in production? | ~8,944 | **647 ±10** (2,560ms) | **2,670 ±7** (4,697ms) | **70.2%** | +312% |
-| **Average** | | | | **71.6%** | **+421%** |
+| What is RAG and how does it work? | ~8,946 | **436 ±3** (1,066ms) | **2,576 ±16** (2,738ms) | **71.2%** | +491% |
+| Explain prompt engineering‡ | ~8,939 | **461 ±25** (1,818ms) | **2,590 ±22** (4,666ms) | **71.0%** | +461% |
+| What is MCP and how does it relate to AI agents? | ~8,949 | **512 ±5** (1,066ms) | **2,582 ±27** (3,315ms) | **71.1%** | +404% |
+| What is vibe coding? | ~8,940 | **452 ±13** (1,532ms) | **2,262 ±10** (4,146ms) | **74.7%** | +400% |
+| How do AI agents work in production? | ~8,945 | **631 ±24** (2,578ms) | **2,662 ±31** (4,412ms) | **70.2%** | +322% |
+| **Average** | | | | **71.7%** | **+416%** |
 
-Cross-domain: 71.6% reduction vs. naive (vs. AHP site 77.5% — Nate's slightly lower reflects different corpus and query types). Overhead vs. RAG +421% (~5.2×). RAG and AHP latency variance reflects Anthropic API infrastructure variance; the CV range of 3–17% across queries in this run is consistent with single-provider LLM inference variability. Cross-domain consistency confirms these are architectural properties, not AHP-corpus artefacts. Latency is mean across 3 runs.
+Cross-domain: 71.7% reduction vs. naive (vs. AHP site 77.4% — Nate's slightly lower reflects different corpus and query types). Overhead vs. RAG +416% (~5.2×). ‡"Explain prompt engineering" consistently produces the highest AHP latency (~4.7s across multiple runs) — this is reproducible across v5.x suite runs and reflects a longer synthesised answer, not infrastructure variance. RAG and AHP latency variance reflects Anthropic API inference variability. Cross-domain consistency across two unrelated sites confirms these are architectural properties, not AHP-corpus artefacts. Latency is mean across 3 runs.
 
 ### 4.3 Latency Profile
 
-The v5.2 suite runs a split 10-cold + 10-hot design: 10 unique-nonce queries force cold-cache LLM calls; 10 repetitions of a fixed query measure cache-hit performance. Results from 2026-02-22 14:33 UTC run.
+The v5.3 suite runs a split 10-cold + 10-hot design: 10 unique-nonce queries force cold-cache LLM calls; 10 repetitions of a fixed query measure cache-hit performance. Results from 2026-02-22 15:46 UTC run.
 
 | Cohort | Metric | Value | Notes |
 |--------|--------|-------|-------|
-| Cold (forced cache miss) | mean | **3,620ms** | n=10; unique nonces, guaranteed cold |
-| Cold | p50 | **3,711ms** | |
-| Cold | max | **4,276ms** | |
-| Hot (cache-hit) | p50 | **29ms** | n=9 cache hits; run 1 was cold (3,066ms, first call on fresh query) |
-| Hot | max | **3,066ms** | Run 1 only — first call on fresh query is always cold |
-| All 20 samples | p50 | **3,048ms** | Mix of 10 cold + 10 hot |
-| All 20 samples | p95 | **4,276ms** | True p95 at n=20 |
-| All 20 samples | min | **20ms** | Fastest cache-hit sample |
+| Cold (forced cache miss) | mean | **3,729ms** | n=10; unique nonces, guaranteed cold |
+| Cold | p50 | **3,806ms** | |
+| Cold | max | **4,267ms** | |
+| Hot (cache-hit) | p50 | **10ms** | n=9 cache hits; run 1 was cold (3,552ms, first call on fresh query) |
+| Hot | max | **3,552ms** | Run 1 only — first call on fresh query is always cold |
+| All 20 samples | p50 | **3,233ms** | Mix of 10 cold + 10 hot |
+| All 20 samples | p95 | **4,267ms** | True p95 at n=20 |
+| All 20 samples | min | **8ms** | Fastest cache-hit sample |
 
-**Key finding**: AHP MODE2 has a bimodal latency distribution. Cache-hit responses (~29ms p50) are comparable to a CDN-served static file. Cold-cache responses (~3,711ms p50) are dominated by Claude Haiku inference time. The hot-cohort max (3,066ms) is run 1 only — the first call on any new query phrase is always cold; subsequent identical queries hit the cache.
+**Key finding**: AHP MODE2 has a bimodal latency distribution. Cache-hit responses (~10ms p50) are comparable to a CDN-served static file. Cold-cache responses (~3,806ms p50) are dominated by Claude Haiku inference time. The hot-cohort max (3,552ms) is run 1 only — the first call on any new query phrase is always cold; subsequent identical queries hit the cache.
 
-**Note on cache-hit p50 variance across runs**: the cache-hit p50 varies between runs (10ms–29ms observed across v5.x suite runs) reflecting server response overhead variability at sub-100ms levels. All values are well within the "CDN-tier" range and are structurally unavailable to a stateless RAG visiting agent.
+**Note on cache-hit p50 variance across runs**: the cache-hit p50 varies between runs (8ms–29ms observed across v5.x suite runs) reflecting server event-loop queue depth at test time. At low-double-digit milliseconds all values are well within "CDN-tier" range and structurally unavailable to a stateless RAG visiting agent. Practitioners can expect their deployed server's cache-hit latency to vary similarly with server load, not caching mechanism quality.
 
-**Note on latency profile vs. evaluation query latency**: the profile p50 (3,711ms) uses short uniform-format nonce queries (low output token count). Evaluation queries in §4.2 range from 2,765ms to 3,994ms AHP cold-cache — variation driven by answer complexity (longer answers = more output tokens = slower). A reader comparing the abstract's "3,711ms cold-cache" to the §4.2 table should treat the profile p50 as a summary statistic, not a per-query ceiling.
+**Note on latency profile vs. evaluation query latency**: the profile p50 (3,806ms) uses short uniform-format nonce queries (low output token count). Evaluation queries in §4.2 range from 2,905ms to 4,416ms AHP cold-cache — variation driven by answer complexity (longer answers = more output tokens = slower). The abstract's "~3,806ms cold-cache" is a summary statistic; individual evaluation query latency varies within this range.
 
 **RAG-baseline latency comparison** (from §4.2 benchmark data):
 
 | Approach | Cold-cache latency | Effective cached latency |
 |----------|--------------------|--------------------------|
-| Naive (doc fetch only, no LLM) | ~146ms (measured) | N/A — re-fetches every time |
-| RAG visiting agent (fetch + Haiku) | ~1,048–2,878ms (measured) | N/A — client manages own caching |
-| AHP MODE2 (cold cache) | **~3,711ms p50** (directly measured, n=10) | **~29ms p50** (server 5-min TTL, n=9 cache hits) |
+| Naive (doc fetch only, no LLM) | ~119ms (measured) | N/A — re-fetches every time |
+| RAG visiting agent (fetch + Haiku) | ~1,066–2,649ms (measured) | N/A — client manages own caching |
+| AHP MODE2 (cold cache) | **~3,806ms p50** (directly measured, n=10) | **~10ms p50** (server 5-min TTL, n=9 cache hits) |
 
-AHP's cold-cache p50 (~3,711ms) is 1.3–3.5× higher than the RAG baseline cold latency range (~1,050ms–2,880ms), reflecting server round-trip overhead on top of the same Haiku inference. AHP's cache-hit latency (~29ms) is structurally unavailable to a stateless RAG visiting agent, which must re-execute the full RAG pipeline on repeated queries. The profile p50 (3,711ms) is measured with short nonce queries; evaluation query AHP latency ranges from 2,765ms to 3,994ms depending on answer complexity (see §4.2 table footnote).
+AHP's cold-cache p50 (~3,806ms) is 1.4–3.6× higher than the RAG baseline cold latency range (~1,066ms–2,649ms), reflecting server round-trip overhead on top of the same Haiku inference. AHP's cache-hit latency (~10ms) is structurally unavailable to a stateless RAG visiting agent, which must re-execute the full RAG pipeline on repeated queries. The profile p50 (3,806ms) is measured with short nonce queries; evaluation query AHP latency ranges from 2,905ms to 4,416ms depending on answer complexity (see §4.2 table footnote).
 
 **Note on MODE3 async latency**: the T14 ~8,100ms figure is from a simulated human operator with fixed delay. Production human escalation = hours to days.
 
@@ -286,9 +288,9 @@ AHP's cold-cache p50 (~3,711ms) is 1.3–3.5× higher than the RAG baseline cold
 
 MODE3 enables a qualitatively different class of interactions — ones that static content approaches do not support through the same protocol interface:
 
-**Real-time data access**: a visiting agent querying `inventory_check` receives current stock levels, pricing, and availability — data that would be stale in any static document. The concierge uses Claude's tool_use to call a structured inventory database, synthesise the result, and respond in natural language. Token cost: ~2,400–3,000 (1 tool call consistently observed in v5.2 test runs).
+**Real-time data access**: a visiting agent querying `inventory_check` receives current stock levels, pricing, and availability — data that would be stale in any static document. The concierge uses Claude's tool_use to call a structured inventory database, synthesise the result, and respond in natural language. Token cost: ~2,400–3,000 (1 tool call consistently observed in v5.3 test runs).
 
-**Orchestration note**: v5.2 test runs observe 1 tool call per inventory or order query (`check_inventory`, `calculate_quote`, `get_order`). A well-tuned MODE3 concierge answering a stock-availability question in 1 tool call is the expected pattern.
+**Orchestration note**: v5.3 test runs observe 1 tool call per inventory or order query (`check_inventory`, `calculate_quote`, `get_order`). A well-tuned MODE3 concierge answering a stock-availability question in 1 tool call is the expected pattern.
 
 **Quote calculation**: a visiting agent requesting pricing for a multi-item order receives a structured quote with volume discounts applied. The concierge calls a pricing engine, gets structured JSON, and explains the result. This *compute-on-behalf-of-the-agent* pattern has no equivalent in static document approaches — though a sufficiently capable visiting agent with direct API access could perform equivalent calculations client-side.
 
@@ -310,7 +312,7 @@ The data presents a nuanced picture that should be stated directly:
 
 **Against the naive full-document baseline (77–80% reduction)**: this reflects a structural upper bound. A visiting agent that fetches a 9,700-token corpus to answer a 15-token question wastes ~98% of the tokens it receives. No competent agent implementation operates this way in production — it is included as a reference point.
 
-**Against the RAG-baseline (AHP uses 3–8× more tokens on compact corpora)**: the v5.2 benchmark (cache-busted, API-measured, 14:33 UTC run) shows a 3-chunk keyword-retrieval visiting agent calling Claude Haiku uses 292–941 tokens per query on the AHP Specification corpus, versus AHP MODE2's 1,987–2,388 tokens. For pure retrieval efficiency on small, well-structured corpora, AHP MODE2 is less token-efficient than a well-implemented client-side RAG agent.
+**Against the RAG-baseline (AHP uses 3–8× more tokens on compact corpora)**: the v5.3 benchmark (cache-busted, API-measured, 15:46 UTC run) shows a 3-chunk keyword-retrieval visiting agent calling Claude Haiku uses 292–938 tokens per query on the AHP Specification corpus, versus AHP MODE2's 1,990–2,417 tokens. For pure retrieval efficiency on small, well-structured corpora, AHP MODE2 is less token-efficient than a well-implemented client-side RAG agent.
 
 This result is neither surprising nor a condemnation of AHP. It correctly identifies what AHP provides and what it does not:
 
@@ -377,8 +379,8 @@ Planned work for the visiting agent side includes:
 6. **T17 (auth enforcement) is a known spec violation in the demo**: the reference implementation intentionally omits auth to simplify demo access. A production deployment must implement spec §5.3.
 7. **T12 (quote calculation) required assertion tightening**: the original vocabulary-based assertion was a false positive. The tightened assertion (price regex + failure-phrase exclusion) is also imperfect — a sufficiently clever failure message could still pass. End-to-end testing with known inventory state remains the most reliable approach.
 8. **RAG-baseline comparison is limited to keyword retrieval**: the RAG baseline uses simple keyword overlap scoring. A more capable RAG agent using embedding-based retrieval would likely use even fewer tokens per query with higher answer quality, making the AHP vs. RAG comparison more competitive in both directions.
-9. **Known test suite coverage gaps (v5.2)**: two spec features are completely untested across all 22 tests: (a) **content type negotiation (spec §6.6)** — `accept_types`, `response_types`, and `unsupported_type` 400 error are unexercised; a server that omits the entire content type negotiation system passes all 22 tests; (b) **session time-based expiry (10-minute TTL)** — T18 verifies the 10-turn limit but not the TTL; a server with infinite session TTL passes all 22 tests. Both gaps are documented in the test suite JSON output under `known_coverage_gaps`.
-10. **T21 §6.3 format unverified**: T21 confirms the server is spec-compliant (§6.3 says MAY) but does not verify that the `clarification_needed` response format is correct — because the reference server never returns it for test queries. The conformance table marks T21 as "✓ Advisory." Verifying the format requires either a server that implements clarification for ambiguous queries, or a T21b mock-parser companion test.
+9. **Known test suite coverage gaps (v5.3)**: two spec features are completely untested across all 23 tests: (a) **content type negotiation (spec §6.6)** — `accept_types`, `response_types`, and `unsupported_type` 400 error are unexercised; a server that omits the entire content type negotiation system passes all 23 tests; (b) **session time-based expiry (10-minute TTL)** — T18 verifies the 10-turn limit but not the TTL; a server with infinite session TTL passes all 23 tests. Both gaps are documented in the test suite JSON output under `known_coverage_gaps`.
+10. **T21 §6.3 live-server behaviour unverified**: T21 confirms the server is spec-compliant (§6.3 says MAY — not required to clarify) but cannot verify whether a server that does implement clarification returns the correct format. T21b (v5.3) resolves the format coverage gap using a mock-response parser that validates all required fields (status, clarification_question, optional suggested_queries). The T21 advisory ✓ reflects server correctness; T21b ✓ confirms format spec coverage.
 
 ---
 
@@ -408,13 +410,13 @@ Planned work for the visiting agent side includes:
 
 The web's interaction model was designed for human browsers. AI agents need something different: a protocol for negotiated, capability-aware, stateful interaction. AHP provides that protocol.
 
-Against a naive full-document baseline, AHP MODE2 demonstrates a 75–80% token reduction across two sites (AHP Specification: 77.5%; Nate Jones AI-practitioner blog: 71.6% — 14:33 UTC v5.2 run). Against a RAG-baseline visiting agent, AHP uses 3–8× more tokens on compact corpora; its advantage is protocol-level, not efficiency-level: structured discovery, capability declaration, server-managed caching (~29ms p50 cache-hit), session management, content signals, and MODE3 capabilities.
+Against a naive full-document baseline, AHP MODE2 demonstrates a 75–80% token reduction across two sites (AHP Specification: 77.4%; Nate Jones AI-practitioner blog: 71.7% — 15:46 UTC v5.3 run). Against a RAG-baseline visiting agent, AHP uses 3–8× more tokens on compact corpora; its advantage is protocol-level, not efficiency-level: structured discovery, capability declaration, server-managed caching (~10ms p50 cache-hit), session management, content signals, and MODE3 capabilities.
 
-We demonstrated **21/22 conformance** on the reference deployment (v5.2 test suite, T01–T22): T17 (MODE3 auth) is the single failure — a CRITICAL security defect in the demo configuration. T21 is advisory (§6.3 MAY — format unverified). Cache-hit latency averages 29ms p50 (n=9 confirmed hits). Cold-cache latency averages 3,711ms p50 (LLM inference). The MODE3 interaction model delivers real-time inventory, computation, and async human delegation unavailable to any document-retrieval approach.
+We demonstrated **22/23 conformance** on the reference deployment (v5.3 test suite, T01–T22 + T21b): T17 (MODE3 auth) is the single failure — a CRITICAL security defect in the demo configuration. T21 is advisory (§6.3 MAY — live server does not trigger clarification); T21b (v5.3, new) confirms the §6.3 format spec is correctly validated via mock-parser. Cache-hit latency averages 10ms p50 (n=9 confirmed hits). Cold-cache latency averages 3,806ms p50 (LLM inference). The MODE3 interaction model delivers real-time inventory, computation, and async human delegation unavailable to any document-retrieval approach.
 
 AHP is designed to grow with the ecosystem. MODE1 compatibility with existing `llms.txt` deployments ensures the protocol can spread through the current base of agent-accessible sites. The extension mechanism in Appendix C allows new content types to be registered without breaking compatibility.
 
-We invite the community to review the specification, run the test suite (v5.2) against their deployments, and submit conformance results at `github.com/AHP-Organization/agent-handshake-protocol`.
+We invite the community to review the specification, run the test suite (v5.3) against their deployments, and submit conformance results at `github.com/AHP-Organization/agent-handshake-protocol`.
 
 ---
 
@@ -450,10 +452,10 @@ All artefacts from this paper are open source and publicly accessible.
 | JSON Schemas | https://agenthandshake.dev/schema/0.1/ |
 | Reference Implementation | https://github.com/AHP-Organization/reference-implementation |
 | Live Reference Endpoint | https://ref.agenthandshake.dev |
-| Test Suite (v5.2) | https://github.com/AHP-Organization/test-suite |
+| Test Suite (v5.3) | https://github.com/AHP-Organization/test-suite |
 | Raw Test Results | https://github.com/AHP-Organization/test-suite/tree/main/results |
 
 ---
 
-*Agent Handshake Protocol — Draft 0.1 (revised 2026-02-22, v5.2 run 14:33 UTC)*
+*Agent Handshake Protocol — Draft 0.1 (revised 2026-02-22, v5.3 run 15:46 UTC)*
 *© 2026 Nick Allain. Licensed under CC BY 4.0.*

@@ -1,163 +1,193 @@
 # AHP Whitepaper Critique
 
-**Critiqued version:** AHP-WHITEPAPER-0.1.md (Draft 0.1, revised 5 — 11:07 UTC)
-**Critique date:** 2026-02-22 11:33 UTC
-**Live test data:** `/tmp/ahp-report-latest.json` — present, run at 11:13 UTC (v5.1 suite)
-**Sequence:** Code committed 11:07 → test ran 11:13 — **first post-commit run across all critique cycles**
-**Prior critiques:** 06:30, 07:30, 08:30, 09:30, 10:30 UTC
+**Critiqued version:** AHP-WHITEPAPER-0.1.md (Draft 0.1, revised 7 — 14:33 UTC)
+**Critique date:** 2026-02-22 (covers queued 1:39 PM and 2:42 PM sessions — consolidated)
+**Live test data:** `/tmp/ahp-report-latest.json` — present, run at 14:38 UTC (v5.2 suite, same code as 12:26 run; test runner last modified 12:20)
+**Sequence:** Code committed 12:20 → test ran 14:38 → whitepaper updated 14:42. Correct post-commit order maintained.
+**Prior critiques:** 06:30, 07:30, 08:30, 09:30, 10:30, 11:33 UTC
 
 ---
 
-## Status: The Structural Problem Is Resolved
+## Cumulative Status: The Paper Is Nearly Ready
 
-Every prior critique cycle identified the same root issue: test code was committed *after* the test ran, and the paper claimed results from a version of the suite that had never executed. That pattern ends here.
+After seven revisions and nine critique cycles, the fundamental structural, methodological, and data integrity issues identified early have all been resolved. Specifically:
 
-The v5.1 test suite code was committed at 11:07. The test ran at 11:13 — six minutes later. For the first time, the live JSON is a genuine v5.1 run, not a v4 run with editorial corrections. Consequently:
+- ✓ Straw-man naive baseline honestly labelled as upper-bound reference, not competitive comparison
+- ✓ RAG-baseline is API-measured, cache-busted, 3-run mean ± stddev — the correct competitive comparison
+- ✓ AHP uses 3–8× more tokens than RAG on compact corpora: prominently stated, not buried
+- ✓ Cache-busting nonces eliminating ±0 stddev artifacts — variance is real LLM variance
+- ✓ Cold/hot latency split (10+10): genuine bimodal profile with cold p50 = 3,711ms and cached p50 = 29ms
+- ✓ T08 session memory confirmed working (server correctly cites prior turn content)
+- ✓ T20 rate-limit header conformance confirmed
+- ✓ T12 quote assertion validated with real price table
+- ✓ T17 CRITICAL DEFECT prominently and correctly labelled
+- ✓ Three consistent conformance figures (21/22) throughout abstract, body, and conclusion
+- ✓ Test ran post-commit in all recent cycles
+- ✓ Related work comprehensive; conformance scope note accurate; limitations properly disclosed
 
-- T08 **passes** in the live data: `"You asked specifically about **MODE1**. In your first message, you explicitly requested: 'Tell me about AHP modes — focus especially on MODE1.'"` — the server has session memory, and the v5 fix correctly recognises it.
-- T22 **passes** in the live data: server returned HTTP 400 on unknown session_id; the v5.1 fix accepting any 4xx works correctly.
-- T21 **runs** in the live data: the test executes and returns advisory pass as designed.
-- All 22 tests appear in the JSON. The summary: **21/22 passed (95.5%), T17 ✗**.
-- All benchmark token counts match the paper's tables exactly (AHP 2,403 ±17 vs. live 2402.7 ±16.8 etc.).
-
-The paper's core claims are now backed by clean, genuine test data. What follows are the remaining issues — considerably smaller in scope than in prior iterations, but still worth addressing before submission.
+What follows documents the remaining genuine issues — fewer and smaller than in prior cycles, but worth addressing before the paper is submitted anywhere.
 
 ---
 
 ## Critical Problems (must fix)
 
-### 1. The MODE1 query AHP latency has a 31% coefficient of variation driven by a 7.5-second outlier
+### 1. The "rate limits" query RAG latency has 68% CV driven by a single 3× outlier — and the table hides it
 
-The "Explain what MODE1 is" query shows AHP latency of 5,278ms / 4,062ms / 7,470ms across three runs — a ±1,727ms standard deviation and 31% coefficient of variation. Run 3 at 7,470ms is more than double the cold-cache p50 of 3,436ms (from the latency profile) and nearly double run 2.
+The "What rate limits should a MODE2 AHP server enforce?" query shows RAG latency of:
+- Run 1: **3,234ms**
+- Run 2: 1,066ms
+- Run 3: 1,140ms
+- Mean: 1,813ms ±1,231ms, **CV = 68%**
 
-This is the single worst-variance data point in the entire benchmark. Every other AHP site query has CV ≤ 17%; every Nate site query has CV ≤ 17%. The MODE1 query at 31% CV stands apart. The mean of 5,603ms is substantially inflated by the outlier — the median of the three runs is 5,278ms, still significantly above the profile p50.
+One run (run 1) took 3.23 seconds — nearly 3× the other two runs, which cluster at ~1.1 seconds. The reported mean (1,813ms) is 64% higher than the actual typical RAG latency for this query (~1.1s). The table shows "1,813ms" with no indication of the outlier. A reader interpreting RAG latency for this query as ~1.8s is materially misled; the genuine expectation is ~1.1s.
 
-The paper reports `5,603ms ±1,727ms` in the latency column of Table 4.2, which is internally consistent, but two things are missing:
+This is the worst data quality point in the entire benchmark. For comparison, AHP latency on the same query shows only ±107ms CV (3.9%) — AHP is dramatically more consistent than the RAG baseline on this query, but that difference is an infrastructure artefact (Anthropic API variability on a RAG call can spike), not a protocol property.
 
-1. **No acknowledgement of the outlier.** A 7.5-second response for a straightforward content query is anomalous. It may reflect an API cold start, transient rate-limit, or network event on run 3. The paper should note this: *"Run 3 of the MODE1 query recorded 7,470ms vs. 4,062–5,278ms for the other runs, likely reflecting a transient API event; this inflates the mean and stddev for this row."*
+The run 1 outlier is almost certainly an Anthropic API cold-start or transient rate-limit event during the benchmark execution. This happens and is expected; the problem is not that it occurred, but that the table presents the distorted mean without disclosure.
 
-2. **The abstract and conclusion use "cold-cache latency averages 3,436ms p50"** (from the latency profile) as the representative cold-cache figure. This is correct for the profile queries. But the MODE1 comparison-table latency of 5,603ms is substantially higher than this figure and uses different queries. A reader comparing the abstract's "3,436ms p50" to the comparison table's "5,603ms" for MODE1 will see an apparent contradiction. The paper should clarify that the profile p50 (3,436ms) comes from the latency profile queries (short, uniform-format queries) and the comparison table shows per-query latency for evaluation queries, which vary based on answer complexity.
+**Fix required**: Add a footnote to the rate-limits row: *"†RAG run 1 recorded 3,234ms vs ~1,100ms for runs 2–3; mean (1,813ms) is inflated by a likely transient API event. Excluding the outlier, RAG latency is ~1,100ms for this query."* Alternatively, if 4-run capability is added to the suite, this is exactly the kind of query that benefits from an additional run to detect outliers. Without the note, the RAG latency comparison for this query overstates the gap.
 
-The most conservative fix: re-run the MODE1 query once (4 total runs, drop the outlier) or add a footnote explaining the 7,470ms run. A 31% CV in a 3-run benchmark is high enough that a reviewer will notice.
+The same issue at smaller scale affects "AHP discovery" query RAG latency (run 3 = 2,880ms vs ~1,860ms for runs 1–2; CV=27%) and "content signals" (runs: 995/1,365/783ms; CV=28%). These are less extreme but the same class of problem. Given the discovery query appears in the table with RAG latency of 2,199ms — when typical is ~1,850ms — the same footnote approach would improve it.
+
+### 2. The latency stddev example values in the §4.2 footnote are stale from an intermediate run
+
+The §4.2 table footnote states: *"Latency stddev: both RAG and AHP latency stddev values reflect genuine LLM inference variance (e.g. AHP discovery ±341ms; RAG endpoint ±353ms)."*
+
+The 14:38 live run shows:
+- AHP discovery latency stddev: **±125ms** (not ±341ms)
+- RAG MODE2 endpoint latency stddev: **±414ms** (not ±353ms)
+
+These example values don't match either the 12:26 run (AHP discovery ±386ms, RAG endpoint ±93ms) or the 14:38 run. They appear to come from an intermediate test run — likely the 1:39 PM run that would have run between these two — whose JSON is no longer the latest file. The whitepaper updated at 14:42 uses the 14:38 data for the table but retained the footnote examples from a prior run.
+
+This is a data consistency issue: the paper claims to be reporting the "14:33 UTC — v5.2 suite" run, but the stddev examples in the footnote are from a different run. A reader who attempts to verify the example values against the live JSON would find a discrepancy.
+
+**Fix required**: Update the example stddev values in the footnote to match the 14:38 run: *"(e.g. AHP discovery ±125ms; RAG discovery ±590ms — reflecting a 2,880ms spike on run 3 vs ~1,860ms typical)."* This simultaneously fixes the stale examples and surfaces the most notable variance in the table.
 
 ---
 
 ## Secondary Issues
 
-### 2. T21 is advisory-only and the ✓ in the conformance table overstates coverage of spec §6.3
+### 3. The RAG latency column in the comparison table shows only mean, not stddev — asymmetric disclosure
 
-T21's live result: *"Server answered without clarification (status=success, mode=MODE2). Advisory: clarification_needed flow (spec §6.3) not triggered by test queries. Server is not REQUIRED to clarify — spec says MAY."*
+The table header shows "RAG-baseline ± σ / (lat.)" where ± σ refers to token stddev and (lat.) is the mean latency only. AHP latency stddev is not shown explicitly in the table either, but the paper's footnote discusses AHP latency variance. The RAG latency variance is not discussed anywhere except the proposed footnote fix in issue #1 above.
 
-The test passes in two distinct situations: (a) the server returns `clarification_needed` with a correct format (genuine §6.3 coverage), or (b) the server never returns `clarification_needed` at all (advisory — spec compliant per MAY). Every run will take path (b) because the reference server appears not to return clarification for any test query, including the maximally ambiguous "What is it?".
+Given that RAG latency has CVs ranging from 7% to 68% across queries (vs. AHP's 2.6% to 15.9%), and given that the RAG latency is used in §4.3's competitive comparison table ("RAG visiting agent: ~1,048–2,878ms"), showing mean RAG latency without variance is materially less informative than the AHP presentation. The range "~1,048–2,878ms" for RAG latency spans from the lowest mean (MODE1 query: ~1,221ms) to the highest mean (MODE2 endpoint query: ~2,878ms) — but the actual per-query variance means some of those means are themselves questionable. Adding a single parenthetical `(lat. mean; see footnote)` for the most variable rows would be sufficient disclosure.
 
-A ✓ in the conformance table implies that §6.3 was verified. It was not. The server is spec-compliant *because the spec says MAY*, not because the test verified anything. A practitioner reading the conformance table would expect that T21 confirms the clarification response format works. It confirms only that the server chose not to use it.
+### 4. The Nate site "prompt engineering" query has consistently high AHP latency (~5s) with no explanation
 
-**Two options:**
-- Change T21 to "N/A" or "Advisory (spec §6.3 MAY — not triggered)" in the conformance table, removing the ✓ that implies positive verification
-- Add a second test that injects a mock `clarification_needed` response to test the format parser in isolation, which would provide genuine §6.3 coverage
+Across two consecutive runs (12:26 and 14:38), "Explain prompt engineering" on the Nate site shows stable AHP latency of approximately 5 seconds:
+- 12:26 run: 4,221ms / 4,428ms / 4,376ms (mean 4,342ms)
+- 14:38 run: 4,999ms / 5,213ms / 4,808ms (mean 5,007ms)
 
-The current framing is technically accurate per the spec's MAY, but it's the weakest test in the suite and the ✓ inflates the effective coverage of the protocol.
+The 14:38 run is ~15% higher than 12:26, but both are consistently the highest-latency query in the Nate benchmark. The paper reports 5,007ms in the Nate table without noting that this query is persistently the slowest.
 
-### 3. The paper says "1–2 tool call rounds" for MODE3 but live data shows exactly 1 consistently
+"Prompt engineering" likely produces a longer, more detailed AHP response (the concierge has more to explain), which drives up output tokens and hence latency. This is the answer-complexity explanation mentioned for the §4.3 profile vs. §4.2 table discrepancy. But the specific query's consistent behaviour across runs makes it worth a brief note: *"'Prompt engineering' is consistently the highest-latency Nate query (~5s), reflecting a longer synthesised answer."* Without this, readers may view the 5,007ms row as an anomaly rather than a reproducible complexity-driven observation.
 
-Section 4.4 states: *"Token cost: ~2,400–3,500 (1–2 tool call rounds in v5 test runs)."* The live data shows:
-- T11 (inventory): `tools_used: ['check_inventory']` — 1 tool call
-- T12 (quote): `tools_used: ['calculate_quote']` — 1 tool call
-- T13 (order): `tools_used: ['lookup_order']` — 1 tool call
+### 5. T21 is structurally incapable of verifying §6.3 format for a well-functioning server, and the ✓ in the table overstates coverage
 
-Three consecutive tests, each 1 tool call. The "1–2 rounds" language is hedging from a prior test run where T11 showed 4 tool calls (now fixed). The current reference server consistently completes single-domain MODE3 queries in 1 tool call. The paper should update to "1 tool call per query in v5.1 test runs" and remove the "–2" hedge.
+T21 sends "Which mode should I use?" and reports advisory pass because the reference server answers the question directly (explaining all three modes). The spec says the server MAY return `clarification_needed`. A server that never clarifies is fully spec-compliant — so T21 is correct to pass.
 
-This matters because the 1 vs. 2 tool call distinction directly affects the MODE3 token cost range (2,400–3,500). With 1 tool call consistently, a tighter cost estimate is possible.
+But the conformance table marks T21 as "✓ Advisory" next to "Clarification needed — format valid if triggered (spec §6.3)." A practitioner reading the table gets the impression that §6.3 was evaluated. It was not. The `clarification_needed` response format — its required fields, structure, and suggested_queries format — was never exercised by any test in the 22-test suite.
 
-### 4. The latency comparison in §4.3 needs clearer cross-reference to the comparison table
+This is a spec design consequence: a protocol feature that is MAY will never trigger in a server that correctly tries to answer questions helpfully. T21 will be "advisory" for any competent AHP server.
 
-Section 4.3 states: *"AHP's cold-cache latency (~3.4s) is 1.2–3× higher than the RAG baseline (~1.1–2.8s)."* This comparison uses the latency profile's 3,436ms p50. But the latency comparison table shows AHP latency ranging from 2,746ms to **5,603ms** for the five evaluation queries. A reader will notice that one evaluation query (MODE1, 5,603ms) is 1.6× the stated "~3.4s."
+The honest table entry is "N/A (server answered directly; §6.3 format unverified)" rather than "✓ Advisory." The distinction matters for practitioners implementing the `clarification_needed` flow — they cannot rely on the conformance table to tell them if their format is correct.
 
-The paper should note: *"The 3,436ms cold p50 in §4.3 is from the latency profile queries (short nonce queries with uniform structure). Evaluation query latency (§4.2 table) varies by answer complexity — from 2,746ms to 5,603ms — reflecting that more complex queries require longer LLM output."* Without this context, the two figures appear contradictory.
+**Longer-term fix**: Add a T21b that directly sends a mock `clarification_needed`-structured response to a format-parsing function and verifies the required fields. This tests the spec in isolation from server behaviour.
 
-### 5. Nate site "Explain prompt engineering" RAG latency has 25% CV — worth acknowledging
+### 6. The cached_p50 varies notably across runs (10ms–29ms) — worth one explanatory sentence
 
-The Nate site RAG latency for "Explain prompt engineering" is 2,258ms / 1,414ms / 1,639ms (mean 1,770ms ±437ms, 25% CV). One run at 2,258ms is 1.6× the other two. The paper reports this without comment. This is a minor issue but one a careful reviewer might flag as evidence of API-side variance in the RAG baseline — consistent with the same API variance that affected the MODE1 AHP query.
+The cache-hit p50 has ranged across v5.x runs:
+- 11:13 run: 12.1ms
+- 12:26 run: 11.5ms
+- 14:38 run: 28.5ms
 
-This variance (and the similar ±420ms for "AI agents in production") suggests the RAG baseline API latency on the Nate site is subject to meaningful infrastructure variance — the same infrastructure as the AHP calls. A sentence noting *"Both RAG and AHP latency reflect Anthropic API variance; the CV range of 5–31% across queries is consistent with single-provider LLM inference variability"* would contextualise all the stddev figures.
-
-### 6. T21 format: the test sends "What is it?" as its ambiguity probe but the reference server answers it
-
-The notes confirm: *"Server answered without clarification (status=success, mode=MODE2)."* The test premise is that "What is it?" is maximally ambiguous and might trigger clarification. The server answered it — presumably with something about AHP, the only topic it knows. For a server with a well-defined domain, even an ambiguous question has a clear answer: "it" refers to AHP. A genuinely domain-agnostic test for clarification triggering would need a query that is ambiguous *within the site's domain* — e.g., "Which mode should I use?" when MODE1/2/3 are all valid answers. This would more reliably test whether the server implements the clarification pathway.
-
-This is a minor improvement suggestion, not a blocking issue. The test is honestly marked advisory.
+The abstract says "~29ms p50" (current run). The abstract from the 11:33 critique said "~12ms p50." These vary nearly 3× despite being from the same caching infrastructure. The paper acknowledges this in §4.3 ("cache-hit p50 varies between runs (10ms–29ms) reflecting server response overhead variability at sub-100ms levels") — this note is good. But "server response overhead variability" is vague. The most likely cause is server-side event loop queue depth at test time (different numbers of background processes, garbage collection, etc.). A short explanation would give practitioners realistic expectations: their deployed server's cache-hit latency at 15ms vs 30ms is normal and reflects server load at query time, not the caching mechanism quality.
 
 ---
 
 ## What the Tests Need
 
-### Remaining coverage gaps (post-v5.1)
+### The two documented coverage gaps remain unaddressed
 
-1. **T21 needs genuine §6.3 format verification.** Options: (a) use a domain-internally-ambiguous query ("Which mode should I use?") that might realistically trigger clarification, or (b) add a companion test `T21b` that directly parses a mocked `clarification_needed` response to verify the format without requiring the live server to trigger it. Until one of these exists, §6.3 format compliance is completely unverified.
+Both are correctly listed in `known_coverage_gaps` in the JSON output and in §5.5 (limitation 9). They are the only substantive spec features completely absent from all 22 tests:
 
-2. **Content type negotiation (spec §6.6) is untested across all suite versions.** `accept_types`, `response_types`, `accept_fallback`, and `unsupported_type` (400) are spec primitives. No test exercises any of them. A server that omits the entire content type negotiation system passes all 22 tests.
+1. **Content type negotiation (spec §6.6)**: `accept_types`, `response_types`, `accept_fallback`, and `unsupported_type` (400) are unexercised. A server that omits the entire content type negotiation system passes all 22 tests.
 
-3. **Session time-based expiry (10-minute TTL) is untested.** T18 verifies the 10-turn limit. The time limit is unverified. A server with an infinite session TTL passes all 22 tests.
+2. **Session time-based expiry (10-minute TTL)**: T18 verifies the 10-turn limit (correctly). No test verifies the TTL. A server with an infinite session TTL passes all 22 tests.
 
-4. **T16's window consumption is non-deterministic.** The burst test "429 after 10 burst requests" reflects that only 9 requests were available when T16 started (earlier tests consumed 21). The declared limit of 30/min is confirmed by T20 header verification, but the T16 "burst count to 429" varies by how many earlier tests ran. T16 should either (a) note the effective window at test time and compute expected 429 trigger point from that, or (b) be moved to run immediately after T20 (before most test requests) so the full 30-request window is available for more reproducible burst testing.
+These are not blocking for the current paper — they're honestly disclosed and the paper's scope is explicitly limited. But they should be in the v5.3 or v6 milestone.
 
-### Methodology improvements
+### T21 improvement (from secondary issue #5)
 
-5. **Add a note or re-run for the MODE1 query's 31% CV.** Either flag the 7,470ms outlier explicitly in the table footnote or add a fourth run to test stability. A consistent ≤20% CV across all queries would give stronger confidence in the latency comparisons.
+3. **Add T21b** as a format-parser unit test that validates the `clarification_needed` response structure (required fields: `status`, `clarification_request`, `suggested_queries`) against a mock response, independent of whether the live server ever returns one.
 
-6. **Update the latency comparison formula in §4.3.** "1.2–3× higher than the RAG baseline (~1.1–2.8s)" uses the latency profile p50, not the per-query evaluation latencies. Add a note clarifying the comparison uses the profile p50 as a summary statistic, while individual query latencies vary.
+### Latency methodology improvement
+
+4. **Add outlier detection to the 3-run benchmark.** When any single run in a 3-run sequence is more than 2× the median of the three (as in the rate-limits RAG run 1 = 3,234ms vs median ~1,103ms), flag it automatically in the JSON output as a suspected outlier and note that the mean is likely inflated. This is a simple improvement that would have automatically surfaced the 68% CV issue without requiring manual analysis.
 
 ---
 
 ## What the Whitepaper Needs
 
-### Required updates
+### Required before submission
 
-1. **Add an outlier note for the MODE1 query latency.** One sentence in Table 4.2 footnotes: *"†Run 3 of the MODE1 query recorded 7,470ms (vs. 4,062ms and 5,278ms for runs 1–2), likely a transient API event; this inflates the mean and ±1,727ms stddev for this row."* This prevents a reviewer from treating the high stddev as evidence of general instability.
+1. **Add a footnote for the rate-limits RAG latency outlier** (run 1 = 3,234ms, inflating mean from ~1.1s to 1.8s). One sentence in the table footnotes is sufficient. Without it, the §4.3 RAG latency comparison range includes a distorted mean.
 
-2. **Update "1–2 tool call rounds" to "1 tool call" in §4.4.** The v5.1 run consistently shows 1 tool call per MODE3 query. The hedged range is stale.
+2. **Update the §4.2 footnote example stddev values** to match the current run: replace "AHP discovery ±341ms; RAG endpoint ±353ms" with values from the 14:38 run. The current examples are from an intermediate run that is no longer the backing data.
 
-3. **Add a cross-reference clarifying the latency profile p50 vs. evaluation query latency.** One sentence in §4.3 connecting the 3,436ms cold p50 to the fact that evaluation queries vary 2,746–5,603ms based on answer complexity.
+3. **Reconsider the T21 conformance table entry** from "✓ Advisory" to something that clearly communicates "§6.3 format unverified." The current ✓ overstates what was tested for readers scanning the table.
 
-4. **Reconsider the T21 ✓ in the conformance table.** Either change the table cell to "Advisory (§6.3 MAY — not triggered in test run)" or note it prominently as "format-unverified." The current ✓ overstates what was tested.
+### Improvements to strengthen the paper
 
-5. **Update the conformance table note for T11** (Section 4.1): the current note says "1 tool call (`check_inventory`) observed in v5.1 run" — accurate. But the §4.4 text still says "1–2 tool call rounds." Make §4.4 consistent with the table note.
+4. **Add "prompt engineering" consistently high latency note to Nate table footnote**: one sentence explaining that this query's ~5s latency is reproducible and reflects a longer synthesised answer, not infrastructure variance.
 
-### What no longer needs fixing
+5. **Expand the cache-hit latency variability note in §4.3**: the existing note mentions "10ms–29ms across v5.x runs" but doesn't explain why. A sentence on server event-loop queue depth at test time would make this more actionable for practitioners.
 
-The following issues from prior critiques are fully resolved in this version:
-- ✓ Version mismatch (v4 code / v3 data): resolved — v5.1 code ran before v5.1 test
-- ✓ Conformance number inconsistency: all three instances now agree at 21/22 (95.5%)
-- ✓ T08 false pass/fail cycle: T08 genuinely passes with server session memory confirmed
-- ✓ T22 not running: T22 runs and passes (HTTP 400 on invalid session_id)
-- ✓ T20 "unknown/unknown" headers: T20 passes, headers present and numeric
-- ✓ RAG baseline absent: fully populated, cache-busted, API-measured
-- ✓ Latency profile all-cached: genuine 10-cold + 10-hot split working
-- ✓ Appendix stale version: corrected to v5.1
-- ✓ Straw-man baseline framing: honestly positioned as upper-bound reference
-- ✓ Single-site evaluation: Nate Jones cross-comparison genuine and populated
-- ✓ T12 false pass: asserting price regex + failure phrase exclusion works
-- ✓ T15/T16 ID swap: fixed
-- ✓ p95 with 5 samples: genuine p95 from 20 samples
-- ✓ Naive latency 200ms hardcode: replaced with real measured fetch time
-- ✓ Character-count token estimation: replaced with tiktoken
-- ✓ Cache-busting ±0 stddev: nonces working, genuine variance measured
-- ✓ T17 severity: CRITICAL KNOWN DEFECT language appropriate and clear
-- ✓ Related work: comprehensive (GPT Actions, Schema.org, ai.txt, RFC 8615, OpenAPI, DID)
-- ✓ Conformance scope: reference-implementation-only scoping clear throughout
+6. **The §4.3 RAG latency range "~1,048–2,878ms"** currently represents the range of per-query means. After the rate-limits outlier footnote is added, consider whether the range should quote the "typical" value for that query (~1.1s) rather than the inflated mean (1.8s). The range endpoint would then be ~1,048–2,878ms but the rate-limits entry would be noted as "typical ~1.1s."
 
 ---
 
-## Summary of Most Critical Issues
+## What's Been Definitively Resolved — Full Accounting
 
-**The good news first**: this is the strongest version of the paper to date. The benchmark data is clean, reproducible, and matches the live run exactly. The RAG-baseline comparison is honest, prominent, and correctly positioned as the competitive reference. The latency profile has genuine cold/hot cohort data. The conformance suite ran cleanly with 21/22 passing. T08 and T22 both pass correctly after their respective fixes. The version-mismatch problem that plagued five prior cycles is resolved. The paper's framing — AHP's advantage over RAG is protocol-level, not efficiency-level — is accurate and well-supported by the data.
+The following issues identified across nine critique sessions are now fully resolved and should not be revisited:
 
-Remaining issues are incremental, not structural:
+| Issue | First Raised | Resolved |
+|-------|-------------|---------|
+| Naive full-doc straw-man as headline claim | 06:30 | ✓ 07:30 |
+| Token counts = character/4 approximation | 06:30 | ✓ 07:30 |
+| Hardcoded 200ms markdown latency | 06:30 | ✓ 07:30 |
+| Nate site querying only AHP-specific topics | 06:30 | ✓ 08:30 |
+| T12 false-pass on error vocabulary | 07:30 | ✓ 08:30 |
+| T15/T16 test ID swap | 06:30 | ✓ 07:30 |
+| RAG baseline absent (API key missing) | 08:30 | ✓ 09:30 |
+| ±0 stddev from cache contamination | 08:30 | ✓ 09:30 |
+| Three inconsistent conformance numbers | 09:30 | ✓ 10:30 |
+| Code committed after test ran (4 consecutive cycles) | 09:30 | ✓ 11:33 |
+| T08 false-pass (no memory, "FIRST" keyword) | 07:30 | ✓ 10:30 |
+| T08 false-negative ("FIRST QUESTION" exclusion) | 10:30 | ✓ 11:33 |
+| T21 and T22 claimed but not run | 10:30 | ✓ 11:33 |
+| Latency profile all-cached (no cold measurements) | 08:30 | ✓ 11:33 |
+| T20 rate-limit headers "unknown" | 09:30 | ✓ 11:33 |
+| MODE1 query AHP latency 31% CV (7.5s outlier) | 11:33 | ✓ 12:37 (clean run) |
+| Appendix stale version number | 08:30 | ✓ 11:33 |
+| Missing related work | 06:30 | ✓ 07:30 |
+| Content signals MUST/SHOULD tension | 06:30 | ✓ 07:30 |
+| Single-site evaluation only | 07:30 | ✓ 08:30 |
+| p95 = max with 5 samples | 06:30 | ✓ 09:30 |
 
-- **The MODE1 query AHP latency (5,603ms ±1,727ms, 31% CV) is an outlier driven by a 7,470ms run 3.** This is the highest-variance data point in the benchmark. The paper should acknowledge the likely transient nature of that run. Left unexplained, a reviewer will flag the high stddev as evidence of instability.
+---
 
-- **T21 provides zero verified coverage of spec §6.3's `clarification_needed` format**, but shows ✓ in the conformance table. The MAY nature of the spec means the ✓ is technically correct — but a practitioner would expect T21 to confirm the format works. It does not. The table cell should either say "Advisory" or §6.3 format testing should be added.
+## Summary of Most Critical Remaining Issues
 
-- **Three remaining cross-reference clarifications in the paper body**: (1) 1–2 tool calls → 1 tool call consistently in §4.4; (2) latency profile p50 vs. evaluation query latency context in §4.3; (3) the MODE1 outlier footnote in Table 4.2.
+**The paper is substantively sound.** The core claims are well-supported, the evaluation methodology is honest and complete, the limitations are clearly disclosed, and the data is clean and reproducible. The remaining issues are documentation refinements, not methodological flaws.
 
-- **Two spec features remain completely untested across all 22 tests**: content type negotiation (§6.6) and session time-based expiry (10-min TTL). These are not blocking issues for the current evaluation scope but should be called out explicitly in the test suite's known limitations.
+- **The "rate limits" query RAG latency (1,813ms reported) is inflated by a 3.23-second outlier run** — the other two runs show ~1.1 seconds, meaning the mean overstates typical RAG latency by 65% for that row. A one-sentence footnote would resolve this. It is the most significant data accuracy issue remaining in the paper.
+
+- **The §4.2 footnote cites stale stddev example values** from an intermediate run (±341ms, ±353ms) that match neither the 12:26 nor 14:38 run. These need to be updated to the current run's values before submission.
+
+- **T21 marks §6.3 as ✓ Advisory, but the clarification_needed response format was never tested.** The ✓ overstates conformance coverage for a spec feature that only validates when triggered, and the server correctly never triggers it for any test query. The table entry should clearly indicate the format is unverified.
+
+- **Two spec features remain untested in all 22 tests** (§6.6 content type negotiation and §5.4.3 session TTL) — correctly documented in `known_coverage_gaps` and §5.5. These are the only remaining unverified spec areas and should appear on the v5.3 milestone.
+
+- **The Nate site "prompt engineering" query's consistent ~5s AHP latency** is reproducible across runs and reflects answer complexity, not variance — worth a brief explanatory note in the table footnotes.
