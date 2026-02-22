@@ -850,8 +850,9 @@ AHP is the evolution beyond `llms.txt`. The differences are significant:
 AHP does not deprecate `llms.txt`. A site with an existing `llms.txt` can become AHP MODE1 compliant with zero changes to that file:
 
 1. Add `/.well-known/agent.json` with `modes: ["MODE1"]` and `endpoints.content: "/llms.txt"`
-2. Add the `<link rel="agent-manifest">` tag to HTML pages
-3. Add the in-page agent notice (Section 3.4)
+2. Add the HTTP `Link` response header to all responses: `Link: </.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"` (Section 3.2)
+3. Add the in-page agent notice to HTML pages (Section 3.3)
+4. Optionally, add `<link rel="agent-manifest">` to HTML `<head>` as a complement to step 2 (Section 3.2, MAY)
 
 The `llms.txt` file becomes the content source for MODE1. When the site is ready to upgrade to MODE2, the same content can back the conversational endpoint.
 

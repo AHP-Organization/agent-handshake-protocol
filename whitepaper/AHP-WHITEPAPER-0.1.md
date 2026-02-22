@@ -387,7 +387,7 @@ This hypothesis requires validation through adoption-scale data — agent query 
 
 ### 5.3 Progressive Adoption
 
-We designed AHP explicitly for progressive adoption. A MODE1 site adds one file (`/.well-known/agent.json`) and two HTML elements (a `<link>` tag and an in-page notice) to become compliant. Our reference implementation takes a developer from zero to MODE2 in an afternoon. MODE3 requires additional infrastructure (tool integrations, an async queue) but no changes to the lower modes.
+We designed AHP explicitly for progressive adoption. A MODE1 site adds one file (`/.well-known/agent.json`), one HTTP response header (the RFC 8288 `Link` header, often a single nginx line), and an in-page notice to become compliant. Our reference implementation takes a developer from zero to MODE2 in an afternoon. MODE3 requires additional infrastructure (tool integrations, an async queue) but no changes to the lower modes.
 
 This progression matters for ecosystem adoption. The content quality caveat applies to all modes: a MODE1 site with a poorly-structured `llms.txt` provides minimal value to visiting agents regardless of manifest completeness. The five-minute compliance figure refers to the structural elements; high-quality content preparation is a separate investment.
 
