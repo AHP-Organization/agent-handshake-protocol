@@ -22,7 +22,7 @@ AHP is the infrastructure layer for agent-native web presence — the successor 
 
 ## Status of This Document
 
-This is a working draft. It is not yet a final specification. Feedback and contributions are welcome at https://github.com/[org]/ahp.
+This is a working draft. It is not yet a final specification. Feedback and contributions are welcome at https://github.com/AHP-Organization/agent-handshake-protocol.
 
 ---
 
@@ -37,6 +37,7 @@ This is a working draft. It is not yet a final specification. Feedback and contr
    - MODE2: Interactive Knowledge
    - MODE3: Agentic Desk
 6. Conversational Endpoint
+   - 6.6 Response Content Types
 7. Content Signals
 8. Trust & Identity
 9. Async Model
@@ -45,6 +46,11 @@ This is a working draft. It is not yet a final specification. Feedback and contr
 12. Versioning & Backwards Compatibility
 13. Security Considerations
 14. Examples
+
+Appendices:
+- Appendix A: JSON Schema for the AHP Manifest
+- Appendix B: Relationship to llms.txt
+- Appendix C: Extension Mechanism & Content Type Registry
 
 ---
 
@@ -178,17 +184,27 @@ The manifest is the handshake opener. It tells a visiting agent everything it ne
     {
       "name": "site_info",
       "description": "General information about this site, its owner, and purpose",
-      "mode": "MODE2"
+      "mode": "MODE2",
+      "response_types": ["text/answer"]
     },
     {
       "name": "content_search",
       "description": "Find specific content, posts, or pages by topic",
-      "mode": "MODE2"
+      "mode": "MODE2",
+      "response_types": ["text/answer", "application/feed"]
+    },
+    {
+      "name": "get_video",
+      "description": "Retrieve a video by title, topic, or ID",
+      "mode": "MODE2",
+      "response_types": ["media/video", "text/answer"],
+      "accept_fallback": true
     },
     {
       "name": "contact",
       "description": "How to reach the site owner; returns structured data",
-      "mode": "MODE1"
+      "mode": "MODE1",
+      "response_types": ["application/data"]
     }
   ],
   "authentication": "none",
@@ -219,7 +235,7 @@ The manifest is the handshake opener. It tells a visiting agent everything it ne
 | `name` | string | Human-readable site name |
 | `description` | string | Brief description for visiting agents |
 | `endpoints` | object | URLs for AHP endpoints |
-| `capabilities` | array | Declared capabilities (required for MODE2/MODE3) |
+| `capabilities` | array | Declared capabilities (required for MODE2/MODE3). Each capability MAY include `response_types` (array of content type strings) and `accept_fallback` (boolean — whether the capability can fall back to `text/answer` if the visiting agent cannot handle the primary type). |
 | `authentication` | string | Auth scheme: `"none"`, `"bearer"`, `"api_key"` |
 | `rate_limit` | string | Request limit in `"N/period"` format |
 | `async` | object | Async capability declaration (see Section 9) |
@@ -311,7 +327,8 @@ Content-Type: application/json
   "context": {
     "requesting_agent": "my-research-bot/1.0",
     "user_intent": "research",
-    "max_tokens": 500
+    "max_tokens": 500,
+    "accept_types": ["text/answer", "application/feed", "media/video"]
   }
 }
 ```
@@ -323,6 +340,7 @@ Content-Type: application/json
 | `query` | MUST | The request or question |
 | `session_id` | MAY | Session identifier for multi-turn exchanges |
 | `context` | MAY | Additional context about the requesting agent |
+| `context.accept_types` | MAY | List of content types the visiting agent can handle, in preference order. If absent, the concierge SHOULD default to `text/answer`. See Section 6.6 and Appendix C. |
 
 ### 6.2 Response — Success
 
@@ -410,6 +428,82 @@ Implementations SHOULD enforce:
 - Session expiry after 10 minutes of inactivity
 - Request body cap of 8KB
 - Rate limiting per IP and optionally per `requesting_agent`
+
+### 6.6 Response Content Types
+
+AHP responses are not limited to text. A concierge MAY return any media type — video streams, audio, images, files, structured feeds, or custom payloads — provided the type is declared in the capability's `response_types` and the visiting agent has indicated it can handle it via `context.accept_types`.
+
+**Content type negotiation:**
+
+1. The manifest declares what types each capability *can* return (`response_types`)
+2. The visiting agent declares what types it *can handle* (`context.accept_types`) in preference order
+3. The concierge selects the most preferred type both parties support
+4. If no overlap exists and `accept_fallback: true` is set on the capability, the concierge MUST fall back to `text/answer` with a plain-language description of the content
+5. If no overlap exists and `accept_fallback` is false or absent, the concierge MUST return a `400` error with code `unsupported_type`, listing the available types
+
+**Response structure with content type:**
+
+The standard success response is extended with a `content_type` field and a `payload` object alongside (or instead of) `answer`:
+
+```json
+{
+  "status": "success",
+  "response": {
+    "content_type": "media/video",
+    "payload": {
+      "stream_url": "https://cdn.example.com/video/intro-to-ahp.m3u8",
+      "format": "hls",
+      "duration_seconds": 847,
+      "width": 1920,
+      "height": 1080,
+      "thumbnail_url": "https://cdn.example.com/thumb/intro-to-ahp.jpg",
+      "subtitles": [
+        { "lang": "en", "url": "https://cdn.example.com/subs/intro-to-ahp.en.vtt" }
+      ],
+      "title": "Introduction to AHP",
+      "description": "A walkthrough of the Agent Handshake Protocol specification."
+    },
+    "answer": "Here is the requested video. It covers AHP modes 1 through 3 in 14 minutes.",
+    "sources": [
+      { "title": "Introduction to AHP", "url": "/videos/intro-to-ahp", "relevance": "direct" }
+    ]
+  },
+  "meta": {
+    "content_type": "media/video",
+    "capability_used": "get_video",
+    "mode": "MODE2"
+  }
+}
+```
+
+**Rules:**
+- Media content MUST be URL-referenced. Binary content MUST NOT be embedded in the response body.
+- `answer` SHOULD always be present as a human-readable (and LLM-readable) summary, even when a rich payload is returned. This ensures visiting agents that cannot render the media can still extract useful information.
+- `payload` structure is defined per content type. See Appendix C for the standard type registry and payload schemas.
+- `content_type` in the `meta` object SHOULD echo the type used, to aid logging and downstream processing.
+
+**Fallback example** — visiting agent cannot handle `media/video`, capability has `accept_fallback: true`:
+
+```json
+{
+  "status": "success",
+  "response": {
+    "content_type": "text/answer",
+    "answer": "The video 'Introduction to AHP' (14 min) is available at https://example.com/videos/intro-to-ahp. It covers MODE1 through MODE3 with live demonstrations.",
+    "sources": [
+      { "title": "Introduction to AHP", "url": "/videos/intro-to-ahp", "relevance": "direct" }
+    ]
+  },
+  "meta": {
+    "content_type": "text/answer",
+    "fallback_from": "media/video",
+    "capability_used": "get_video",
+    "mode": "MODE2"
+  }
+}
+```
+
+The `meta.fallback_from` field informs the visiting agent that a richer response was available but not served due to type negotiation. The visiting agent MAY retry with the appropriate `accept_types` if it gains the ability to handle the type.
 
 ---
 
@@ -720,7 +814,245 @@ The goal is not to fragment the ecosystem — it is to give it a path forward. S
 
 ---
 
+## Appendix C: Extension Mechanism & Content Type Registry
+
+### C.1 Extension Philosophy
+
+AHP cannot enumerate every content type or capability pattern the web will produce. Instead, the protocol defines:
+
+1. **A core registry** of well-known content types with standardised payload schemas
+2. **A namespaced extension prefix** (`x-`) for custom types that any implementation may use without coordination
+3. **A promotion path** for widely-adopted extensions to become core types in future revisions
+
+This mirrors the design of HTTP headers, MIME types, and HTML data attributes — all of which use the same pattern successfully.
+
+### C.2 Core Content Type Registry
+
+The following types are defined by this specification. Payload schemas are normative.
+
+---
+
+#### `text/answer`
+
+Default type. A plain-text (or markdown) response. Used when no richer type applies or as a fallback.
+
+```json
+{
+  "content_type": "text/answer",
+  "answer": "string — the response text. Markdown is permitted.",
+  "sources": [ { "title": "string", "url": "string", "relevance": "direct|indirect|background" } ],
+  "follow_up": { "suggested_queries": ["string"] }
+}
+```
+
+---
+
+#### `application/data`
+
+Structured JSON data. Used when the response is machine-readable records rather than prose — contact info, product details, structured metadata.
+
+```json
+{
+  "content_type": "application/data",
+  "payload": {
+    "schema": "URI or name identifying the data shape (optional but RECOMMENDED)",
+    "data": { }
+  },
+  "answer": "string — human-readable summary (SHOULD be present)"
+}
+```
+
+---
+
+#### `application/feed`
+
+A list of items. Used for search results, article listings, product catalogues, or any ordered collection.
+
+```json
+{
+  "content_type": "application/feed",
+  "payload": {
+    "total": 42,
+    "items": [
+      {
+        "title": "string",
+        "url": "string",
+        "description": "string",
+        "published_at": "ISO 8601 datetime or null",
+        "thumbnail_url": "string or null",
+        "metadata": { }
+      }
+    ],
+    "next_cursor": "string or null — for pagination"
+  },
+  "answer": "string — summary of results"
+}
+```
+
+---
+
+#### `media/video`
+
+A video resource. Payload provides stream URL, format, and metadata sufficient for a capable agent to present, embed, or describe the content.
+
+```json
+{
+  "content_type": "media/video",
+  "payload": {
+    "stream_url": "string — primary playback URL (HLS, DASH, MP4, etc.)",
+    "format": "hls | dash | mp4 | webm | string",
+    "duration_seconds": 0,
+    "width": 1920,
+    "height": 1080,
+    "thumbnail_url": "string or null",
+    "title": "string",
+    "description": "string or null",
+    "published_at": "ISO 8601 datetime or null",
+    "subtitles": [
+      { "lang": "BCP 47 language tag", "url": "string — VTT or SRT" }
+    ],
+    "chapters": [
+      { "title": "string", "start_seconds": 0 }
+    ],
+    "alternate_formats": [
+      { "format": "string", "url": "string", "quality": "string" }
+    ]
+  },
+  "answer": "string — description of the video"
+}
+```
+
+---
+
+#### `media/audio`
+
+An audio resource. Covers podcasts, music, voice recordings, and audio streams.
+
+```json
+{
+  "content_type": "media/audio",
+  "payload": {
+    "stream_url": "string",
+    "format": "mp3 | ogg | aac | flac | string",
+    "duration_seconds": 0,
+    "title": "string",
+    "description": "string or null",
+    "published_at": "ISO 8601 datetime or null",
+    "thumbnail_url": "string or null",
+    "transcript_url": "string or null — VTT, SRT, or plain text",
+    "chapters": [
+      { "title": "string", "start_seconds": 0 }
+    ]
+  },
+  "answer": "string — description of the audio"
+}
+```
+
+---
+
+#### `media/image`
+
+One or more images. Used for photos, illustrations, diagrams, or galleries.
+
+```json
+{
+  "content_type": "media/image",
+  "payload": {
+    "images": [
+      {
+        "url": "string",
+        "alt": "string — descriptive alt text. REQUIRED.",
+        "width": 0,
+        "height": 0,
+        "format": "jpeg | png | webp | gif | svg | string",
+        "title": "string or null"
+      }
+    ],
+    "layout": "single | gallery | carousel"
+  },
+  "answer": "string — description of the image(s)"
+}
+```
+
+---
+
+#### `file/download`
+
+A downloadable file. Used for PDFs, datasets, archives, documents, or any non-media binary.
+
+```json
+{
+  "content_type": "file/download",
+  "payload": {
+    "url": "string — download URL",
+    "filename": "string",
+    "mime_type": "string — IANA MIME type",
+    "size_bytes": 0,
+    "checksum": "string — SHA-256 hex digest (RECOMMENDED)",
+    "description": "string or null",
+    "expires_at": "ISO 8601 datetime or null — if the URL is time-limited"
+  },
+  "answer": "string — description of the file"
+}
+```
+
+---
+
+#### `application/action-result`
+
+The outcome of a MODE3 action capability. Used when an action was performed and a result is being returned.
+
+```json
+{
+  "content_type": "application/action-result",
+  "payload": {
+    "action": "string — name of the action performed",
+    "success": true,
+    "result": { },
+    "side_effects": [
+      { "type": "string", "description": "string" }
+    ]
+  },
+  "answer": "string — plain-language summary of what happened"
+}
+```
+
+---
+
+### C.3 Extension Types
+
+Any content type prefixed with `x-` is an extension type. Extension types are not defined by this specification and carry no compatibility guarantees.
+
+**Format:** `x-{vendor}/{type}`
+
+**Examples:**
+- `x-shopify/cart` — Shopify cart state
+- `x-realestate/listing` — Property listing with geo, pricing, photos
+- `x-health/appointment` — Healthcare appointment booking result
+
+**Rules for extension types:**
+- MUST be prefixed with `x-`
+- SHOULD include a vendor namespace to avoid collisions
+- The payload schema is defined entirely by the implementer
+- `answer` SHOULD still be present for agents that cannot interpret the extension type
+- Extension types SHOULD be documented publicly if intended for third-party use
+
+**Promotion to core:** Extension types that see broad adoption across multiple independent implementations MAY be proposed for inclusion in the core registry via the standard contribution process. Proposals should include real-world usage evidence and at least two independent implementations.
+
+### C.4 Registering a Content Type
+
+To formally propose a new core content type:
+
+1. Open an issue in the spec repository with the label `content-type-proposal`
+2. Provide: the type string, a use case description, a normative payload schema, at least one worked example, and evidence of need (why existing types don't cover it)
+3. Discussion and refinement happens in the issue
+4. If accepted, a PR adds it to Appendix C and the type is included in the next minor revision
+
+Until a proposal is accepted, use the `x-` prefix.
+
+---
+
 *Agent Handshake Protocol — Draft 0.1*
 *Authors: Nick Allain, [contributors]*
-*Repository: https://github.com/[org]/ahp*
+*Repository: https://github.com/AHP-Organization/agent-handshake-protocol*
 *Spec site: https://agenthandshake.dev*
