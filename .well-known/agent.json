@@ -1,0 +1,56 @@
+{
+  "ahp": "0.1",
+  "name": "Agent Handshake Protocol",
+  "description": "The open protocol for how AI agents discover and interact with websites. This is the official specification site.",
+  "modes": ["MODE1"],
+  "endpoints": {
+    "content": "/spec"
+  },
+  "capabilities": [
+    {
+      "name": "spec",
+      "description": "The full AHP specification document",
+      "mode": "MODE1",
+      "response_types": ["text/answer"]
+    },
+    {
+      "name": "getting_started",
+      "description": "Quick start guide for implementing AHP on a website",
+      "mode": "MODE1",
+      "response_types": ["text/answer"]
+    },
+    {
+      "name": "changelog",
+      "description": "Version history and changes to the AHP specification",
+      "mode": "MODE1",
+      "response_types": ["text/answer"]
+    },
+    {
+      "name": "contributing",
+      "description": "How to contribute to the AHP specification",
+      "mode": "MODE1",
+      "response_types": ["text/answer"]
+    }
+  ],
+  "authentication": "none",
+  "rate_limits": {
+    "unauthenticated": {
+      "requests": "60/minute"
+    }
+  },
+  "content_signals": {
+    "ai_train": false,
+    "ai_input": true,
+    "search": true,
+    "attribution_required": true
+  },
+  "async": {
+    "supported": false
+  },
+  "links": {
+    "github": "https://github.com/AHP-Organization/agent-handshake-protocol",
+    "spec": "https://agenthandshake.dev/spec",
+    "changelog": "https://agenthandshake.dev/changelog",
+    "contributing": "https://agenthandshake.dev/contributing"
+  }
+}

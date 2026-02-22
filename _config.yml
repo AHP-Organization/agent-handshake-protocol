@@ -28,6 +28,10 @@ footer_content: "© 2026 Nick Allain and contributors. Specification: <a href=\"
 # SEO
 logo: "/assets/images/logo.png"
 
+# Include dotfiles/directories Jekyll would otherwise skip
+include:
+  - .well-known
+
 # Exclude from site build
 exclude:
   - Gemfile
