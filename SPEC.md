@@ -64,7 +64,7 @@ AHP defines a better contract. A site publishes a machine-readable manifest at a
 
 AHP is compatible with and builds upon:
 
-- **Cloudflare's "Markdown for Agents"** — sites exposing clean markdown content at `?markdown=true` or via `/llms.txt` are MODE1-compatible with minor additions.
+- **[Cloudflare's "Markdown for Agents"](https://blog.cloudflare.com/markdown-for-agents/)** — sites exposing clean markdown content at `?markdown=true` or via `/llms.txt` are MODE1-compatible with minor additions.
 - **`robots.txt`** — AHP's `agent.json` manifest follows the same well-known URI pattern and spirit.
 - **OpenAPI / Schema.org** — AHP borrows structured schema conventions but targets agent interaction rather than API documentation.
 

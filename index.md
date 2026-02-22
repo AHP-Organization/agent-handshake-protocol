@@ -19,7 +19,7 @@ The open protocol for how AI agents discover and interact with websites.
 
 The web was built for humans. When AI agents visit websites today, they scrape HTML, parse markdown dumps, and guess at structure — the equivalent of handing someone an encyclopedia when they asked one question.
 
-Cloudflare's "Markdown for Agents" is a step forward. But it's still a monologue — a document thrown over a fence. The agent must parse the whole thing regardless of what it actually needs.
+[Cloudflare's "Markdown for Agents"](https://blog.cloudflare.com/markdown-for-agents/) is a step forward. But it's still a monologue — a document thrown over a fence. The agent must parse the whole thing regardless of what it actually needs.
 
 **AHP defines a better contract.** A site publishes a machine-readable manifest. Visiting agents discover it, understand what the site can do, and interact through a structured protocol — asking for exactly what they need, getting exactly that back.
 
