@@ -106,7 +106,7 @@ This is the universal fallback: any agent can fetch it directly without prior kn
 Sites SHOULD include an RFC 8288 `Link` header on every HTTP response — proactively, on all responses including API endpoints, 404 pages, and redirects:
 
 ```
-Link: </.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"
+Link: </.well-known/agent.json>; rel="ahp-manifest"; type="application/agent+json"
 ```
 
 This mechanism targets agents that make raw HTTP requests and inspect response headers before or instead of parsing body content — including HTTP-native tool-calling agents and agents that issue `HEAD` requests for lightweight pre-flight discovery. It communicates manifest location at the transport layer, without requiring the agent to receive or parse any response body.
@@ -115,7 +115,7 @@ This mechanism targets agents that make raw HTTP requests and inspect response h
 
 ```nginx
 # nginx
-add_header Link '</.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"' always;
+add_header Link '</.well-known/agent.json>; rel="ahp-manifest"; type="application/agent+json"' always;
 ```
 
 
@@ -171,7 +171,7 @@ Discovery priority depends on the agent's access model. Two cases apply:
 **HTTP-capable agents** (agents that can make direct HTTP requests to the site):
 
 1. Fetch `/.well-known/agent.json` directly (§3.1) — cheapest, most reliable, no body parsing required
-2. Inspect the HTTP `Link` response header for `rel="agent-manifest"` on an incidental request (§3.2) — useful when the agent is already making a request for another purpose
+2. Inspect the HTTP `Link` response header for `rel="ahp-manifest"` on an incidental request (§3.2) — useful when the agent is already making a request for another purpose
 3. Check rendered page content for `aria-label="AI Agent Notice"` or class `ahp-notice` (§3.3) — last resort; most expensive and most fragile (depends on DOM structure, JS hydration, and CSS visibility)
 
 **Headless browser / content-only agents** (agents that received page content from a browser pipeline or from a user, without direct HTTP access):
@@ -922,7 +922,7 @@ AHP is the evolution beyond `llms.txt`. The differences are significant:
 AHP does not deprecate `llms.txt`. A site with an existing `llms.txt` can become AHP MODE1 compliant with zero changes to that file:
 
 1. Add `/.well-known/agent.json` with `modes: ["MODE1"]` and `endpoints.content: "/llms.txt"`
-2. Add the HTTP `Link` response header to all responses: `Link: </.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"` (Section 3.2)
+2. Add the HTTP `Link` response header to all responses: `Link: </.well-known/agent.json>; rel="ahp-manifest"; type="application/agent+json"` (Section 3.2)
 3. Add the in-page agent notice to HTML pages (Section 3.3)
 
 The `llms.txt` file becomes the content source for MODE1. When the site is ready to upgrade to MODE2, the same content can back the conversational endpoint.

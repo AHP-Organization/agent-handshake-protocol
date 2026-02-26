@@ -98,7 +98,7 @@ MODE3 changes the nature of the interaction: the visiting agent is no longer jus
 AHP defines **three discovery mechanisms**, each targeting a distinct class of visiting agent:
 
 1. **Well-known URI** — `GET /.well-known/agent.json` per IETF RFC 8615 [RFC8615]. The universal fallback: any agent can fetch it directly. The only MUST in the discovery section.
-2. **HTTP `Link` response header** — `Link: </.well-known/agent.json>; rel="agent-manifest"; type="application/agent+json"` sent proactively on every HTTP response (RFC 8288 [RFC8288]). Reaches HTTP-native agents that inspect response headers before parsing body content — invisible to HTML-parsing agents but present on all responses including API endpoints, 404 pages, and `HEAD` requests.
+2. **HTTP `Link` response header** — `Link: </.well-known/agent.json>; rel="ahp-manifest"; type="application/agent+json"` sent proactively on every HTTP response (RFC 8288 [RFC8288]). Reaches HTTP-native agents that inspect response headers before parsing body content — invisible to HTML-parsing agents but present on all responses including API endpoints, 404 pages, and `HEAD` requests.
 3. **In-page agent notice** — a `<section aria-label="AI Agent Notice" style="display:none">` in the page body. Reaches LLMs reading page content as text — agents that arrived via a headless browser or were passed a page by a human user and have no direct HTTP awareness.
 
 The `Accept: application/agent+json` header is **not** a discovery mechanism — it is a capability negotiation signal for agents that already know a site supports AHP. It belongs in the request protocol, not the discovery layer (spec §3.4).
@@ -528,7 +528,7 @@ Both integration endpoints are proxies over the same underlying AHP concierge. T
 
 **ai.txt** [AITXT]: a competing convention for declaring AI usage preferences at the site level. AHP's `content_signals` block covers similar ground while being embedded in the discovery and interaction protocol rather than a standalone declaration file.
 
-**IETF RFC 8288 — Web Linking** [RFC8288]: the formal specification for the HTTP `Link` header field used in AHP §3.5 (proactive manifest discovery). AHP uses `rel="agent-manifest"` as a link relation type; formal registration with IANA under RFC 8288 §2.1.1 is planned for v1.0.
+**IETF RFC 8288 — Web Linking** [RFC8288]: the formal specification for the HTTP `Link` header field used in AHP §3.5 (proactive manifest discovery). AHP uses `rel="ahp-manifest"` as a link relation type; formal registration with IANA under RFC 8288 §2.1.1 is planned for v1.0.
 
 **IETF RFC 8615 — Well-Known URIs** [RFC8615]: the formal specification for the `.well-known/` URI path convention that AHP relies on for manifest discovery. AHP's `/.well-known/agent.json` is a Well-Known URI and should be registered with IANA under this convention.
 
